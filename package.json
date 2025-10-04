@@ -10,12 +10,19 @@
   },
   "dependencies": {
     "@heroui/react": "^2.8.5",
+    "@types/google.maps": "^3.58.1",
     "appwrite": "^20.1.0",
+    "country-region-data": "^3.1.0",
+    "country-state-city": "^3.2.1",
     "framer-motion": "^12.23.22",
     "lucide-react": "^0.544.0",
     "next": "15.5.4",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "react-phone-input-2": "^2.15.1",
+    "react-select": "^5.10.2",
+    "react-select-country-list": "^2.2.3",
+    "use-places-autocomplete": "^4.0.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

@@ -86,7 +86,14 @@ const Header = () => {
                   <ChevronDown size={16} className="text-gray-400" />
                 </button>
                 {avatarMenu && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-2">
+                  <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-2">
+                    <a
+                      href="/shipping-info"
+                      className="flex items-center px-4 py-2 text-blue-700 hover:bg-blue-50 transition-colors font-semibold border-b border-blue-100"
+                    >
+                      <Info size={16} className="mr-2" />
+                      Info Spedizione
+                    </a>
                     {isAdmin ? (
                       <a
                         href="/admin"
@@ -166,22 +173,44 @@ const Header = () => {
                 </a>
               ))}
               <div className="pt-4 border-t border-gray-200 space-y-2">
-                <Link href="/auth/login" onClick={() => setIsMenuOpen(false)}>
+                <Link href="/shipping-info" onClick={() => setIsMenuOpen(false)}>
                   <Button
+                    className="w-full text-blue-700 hover:text-blue-900 rounded-full justify-start"
                     variant="ghost"
-                    startContent={<User size={16} />}
-                    className="w-full justify-start text-gray-700 hover:text-purple-600 rounded-full"
+                    startContent={<Info size={16} />}
                   >
-                    Accedi
+                    Info Spedizione
                   </Button>
                 </Link>
-                <Link href="/auth/register" onClick={() => setIsMenuOpen(false)}>
-                  <Button
-                    className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-full"
-                  >
-                    Registrati
-                  </Button>
-                </Link>
+                {isAdmin ? (
+                  <Link href="/admin" onClick={() => setIsMenuOpen(false)}>
+                    <Button
+                      className="w-full text-purple-700 hover:text-purple-900 rounded-full justify-start"
+                      variant="ghost"
+                      startContent={<List size={16} />}
+                    >
+                      Dashboard
+                    </Button>
+                  </Link>
+                ) : (
+                  <Link href="/orders" onClick={() => setIsMenuOpen(false)}>
+                    <Button
+                      className="w-full text-gray-700 hover:text-gray-900 rounded-full justify-start"
+                      variant="ghost"
+                      startContent={<List size={16} />}
+                    >
+                      I miei ordini
+                    </Button>
+                  </Link>
+                )}
+                <Button
+                  onClick={logout}
+                  className="w-full text-red-600 hover:text-red-700 rounded-full justify-start"
+                  variant="ghost"
+                  startContent={<LogOut size={16} />}
+                >
+                  Logout
+                </Button>
               </div>
             </nav>
           </motion.div>

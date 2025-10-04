@@ -24,6 +24,7 @@ export interface UserInfo {
   state: string;
   postal_code: number | null;
   shipping_info: boolean;
+  name_surname: string | null
 }
 
 interface AccountContextType {
