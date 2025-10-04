@@ -62,7 +62,7 @@ const AboutSection = () => {
             </h3>
             <div className="space-y-4 text-gray-600">
               <p>
-                Fondata nel 2023, Stem è nata dall'idea di democratizzare la creatività. 
+                Fondata nel 2023, Stem è nata dall&apos;idea di democratizzare la creatività. 
                 Volevamo creare una piattaforma dove chiunque potesse trasformare le proprie 
                 idee in sticker e oggetti personalizzati di alta qualità.
               </p>

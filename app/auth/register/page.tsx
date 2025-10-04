@@ -4,6 +4,7 @@ import React from 'react';
 import AuthLayout from '../../components/auth/AuthLayout';
 import GoogleAuthButton from '../../components/auth/GoogleAuthButton';
 import { account, databases, ID, Query } from '../../components/auth/appwriteClient';
+import { OAuthProvider } from 'appwrite';
 import { useRouter } from 'next/navigation';
 
 export default function RegisterPage() {
@@ -13,7 +14,7 @@ export default function RegisterPage() {
   async function handleGoogleRegister() {
     // 1. Avvia OAuth Google
     await account.createOAuth2Session(
-      "google",
+      OAuthProvider.Google,
       window.location.origin + "/auth/register?oauth=1", // redirect dopo login
       window.location.origin + "/auth/register?error=1"  // redirect dopo errore
     );

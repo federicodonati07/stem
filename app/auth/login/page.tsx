@@ -5,16 +5,17 @@ import AuthLayout from '../../components/auth/AuthLayout';
 import GoogleAuthButton from '../../components/auth/GoogleAuthButton';
 import { account } from '../../components/auth/appwriteClient';
 import { useRouter } from 'next/navigation';
+import { OAuthProvider } from 'appwrite';
 
 export default function LoginPage() {
   const router = useRouter();
 
   async function handleGoogleLogin() {
     // 1. Avvia OAuth Google
-    await account.createOAuth2Session(
-      "google",
+    account.createOAuth2Session(
+      OAuthProvider.Google,
       window.location.origin + "/auth/login?oauth=1", // redirect dopo login
-      window.location.origin + "/auth/login?error=1"  // redirect dopo errore
+      window.location.origin + "/auth/login?error=1" // redirect dopo errore
     );
   }
 

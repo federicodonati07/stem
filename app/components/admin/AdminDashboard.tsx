@@ -315,8 +315,8 @@ const AdminDashboard = () => {
                 <div>
                   <h4 className="font-semibold text-yellow-800">Modalità Demo</h4>
                   <p className="text-yellow-700 text-sm">
-                    Questa è una versione demo dell'admin dashboard. Le funzionalità complete saranno disponibili 
-                    con l'integrazione del backend Appwrite.
+                    Questa è una versione demo dell&apos;admin dashboard. Le funzionalità complete saranno disponibili 
+                    con l&apos;integrazione del backend Appwrite.
                   </p>
                 </div>
               </div>

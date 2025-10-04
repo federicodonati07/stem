@@ -8,7 +8,7 @@ export interface User {
   name: string;
   email: string;
   emailVerification: boolean;
-  prefs: Record<string, any>;
+  prefs: Record<string, unknown>;
   // puoi aggiungere altri campi se vuoi
 }
 
@@ -22,7 +22,7 @@ export interface UserInfo {
   apartment_number: string;
   nation: string;
   state: string;
-  postal_code: number | null;
+  postal_code: string | null;
   shipping_info: boolean;
   name_surname: string | null
 }
@@ -64,13 +64,11 @@ export const AccountProvider = ({ children }: { children: React.ReactNode }) => 
         const teamId = process.env.NEXT_PUBLIC_APPWRITE_ADMIN_TEAM_ID || "admins";
         console.log("Controllo admin - Team ID:", teamId);
         
-        // Metodo 1: Usa getMemberships per ottenere i team dell'utente corrente
+        // Metodo 1: Usa getMembership per ottenere la membership dell'utente corrente
         try {
-          const userMemberships = await teams.getMemberships();
-          const isUserAdmin = userMemberships.memberships.some(membership => 
-            membership.teamId === teamId && membership.roles.includes("admin")
-          );
-          console.log("Memberships utente:", userMemberships.memberships);
+          const userMembership = await teams.getMembership(teamId, 'current');
+          const isUserAdmin = userMembership.roles.includes("admin");
+          console.log("Membership utente:", userMembership);
           console.log("È admin (metodo 1):", isUserAdmin);
           setIsAdmin(isUserAdmin);
         } catch (membershipError) {
@@ -114,7 +112,8 @@ export const AccountProvider = ({ children }: { children: React.ReactNode }) => 
         // Non creare automaticamente user_info qui - lascia che sia gestito dalle pagine di auth
         setUserInfo(null);
       } else {
-        setUserInfo(infoRes.documents[0] as UserInfo || null);
+        // Fix type conversion: cast to unknown first, then to UserInfo
+        setUserInfo(infoRes.documents[0] ? (infoRes.documents[0] as unknown as UserInfo) : null);
       }
     } catch (e) {
       setUser(null);

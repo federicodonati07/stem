@@ -1,6 +1,6 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import { motion, cubicBezier } from 'framer-motion';
 import { Button, Card, CardBody, CardFooter } from '@heroui/react';
 import { ShoppingCart, Heart, Star } from 'lucide-react';
 
@@ -97,7 +97,7 @@ const ProductGrid = () => {
       y: 0,
       transition: {
         duration: 0.6,
-        ease: "easeOut"
+        ease: cubicBezier(0.42, 0, 0.58, 1)
       }
     }
   };
@@ -137,7 +137,7 @@ const ProductGrid = () => {
               key={product.id}
               variants={itemVariants}
               whileHover={{ y: -8 }}
-              transition={{ duration: 0.3 }}
+              transition={{ duration: 0.3, ease: cubicBezier(0.42, 0, 0.58, 1) }}
             >
               <Card className="h-full group cursor-pointer border border-gray-200 hover:border-purple-300 hover:shadow-xl transition-all duration-300 rounded-2xl">
                 <CardBody className="p-4 rounded-2xl">

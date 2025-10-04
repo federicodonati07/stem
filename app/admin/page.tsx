@@ -7,11 +7,9 @@ import {
   Loader2, 
   Package, 
   Plus, 
-  Settings, 
   ShoppingCart, 
   ArrowLeft,
   TrendingUp,
-  Users,
   DollarSign,
   Eye,
   Edit,
@@ -150,7 +148,7 @@ export default function AdminDashboard() {
               ].map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
+                  onClick={() => setActiveTab(tab.id as 'orders' | 'products' | 'create')}
                   className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                     activeTab === tab.id
                       ? 'border-purple-500 text-purple-600'
