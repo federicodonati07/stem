@@ -12,7 +12,7 @@ const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [avatarMenu, setAvatarMenu] = useState(false);
   const avatarRef = useRef<HTMLDivElement>(null);
-  const { user, userInfo, loading, logout } = useAccount();
+  const { user, userInfo, isAdmin, loading, logout } = useAccount();
 
   // Chiudi il menu avatar se clicchi fuori
   React.useEffect(() => {
@@ -87,13 +87,23 @@ const Header = () => {
                 </button>
                 {avatarMenu && (
                   <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-2">
-                    <a
-                      href="/admin"
-                      className="flex items-center px-4 py-2 text-gray-700 hover:bg-gray-50 transition-colors"
-                    >
-                      <List size={16} className="mr-2" />
-                      I miei ordini
-                    </a>
+                    {isAdmin ? (
+                      <a
+                        href="/admin"
+                        className="flex items-center px-4 py-2 text-purple-700 hover:bg-purple-50 transition-colors font-semibold"
+                      >
+                        <List size={16} className="mr-2" />
+                        Dashboard
+                      </a>
+                    ) : (
+                      <a
+                        href="/orders"
+                        className="flex items-center px-4 py-2 text-gray-700 hover:bg-gray-50 transition-colors"
+                      >
+                        <List size={16} className="mr-2" />
+                        I miei ordini
+                      </a>
+                    )}
                     <button
                       onClick={logout}
                       className="flex items-center w-full px-4 py-2 text-red-600 hover:bg-red-50 transition-colors font-semibold cursor-pointer"
