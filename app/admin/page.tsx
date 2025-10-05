@@ -101,7 +101,7 @@ export default function AdminDashboard() {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [ordersSearch, setOrdersSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<AdminOrderStatus | null>(null);
+  const [statusFilter, setStatusFilter] = useState<AdminOrderStatus | null>('pagato');
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState<Record<string, boolean>>({});
   const [statusMenuFor, setStatusMenuFor] = useState<string | null>(null);
@@ -177,9 +177,18 @@ export default function AdminDashboard() {
     setUpdatingStatus((m) => ({ ...m, [orderDocId]: true }));
     const prev = orders;
     // optimistic UI
-    setOrders((list) => list.map((o) => (o.$id === orderDocId ? { ...o, status: newStatus } : o)) as any);
+    setOrders((list) => {
+      const nextList = (list as any[]).map((o) => (o.$id === orderDocId ? { ...o, status: newStatus } : o));
+      // If a filter is active and the updated order no longer matches it, remove it immediately
+      if (statusFilter && String(newStatus) !== statusFilter) {
+        return nextList.filter((o) => o.$id !== orderDocId) as any;
+      }
+      return nextList as any;
+    });
     try {
       await databases.updateDocument(dbId, ordersCol, orderDocId, { status: newStatus });
+      // Re-fetch to ensure lists/metrics reflect filters and aggregates
+      await fetchOrders();
     } catch (e) {
       // revert
       setOrders(prev);
@@ -1035,7 +1044,7 @@ export default function AdminDashboard() {
                   {ordersLoading ? <span className="text-sm text-gray-500">Caricamento...</span> : null}
                   {ordersError ? <span className="text-sm text-red-600">{ordersError}</span> : null}
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-3 max-h-[520px] overflow-auto pr-1">
                   {(!ordersLoading && !ordersError && orders.length === 0) && (
                     <div className="p-4 bg-gray-50 border rounded-xl text-center text-gray-500">Nessun ordine trovato</div>
                   )}

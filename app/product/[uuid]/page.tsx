@@ -175,7 +175,14 @@ export default function ProductDetailPage() {
                   )}
                 </div>
                 {personalizeMode === 'text' ? (
-                  <input type="text" className="w-full px-4 py-3 border border-gray-400 rounded-xl focus:ring-2 focus:ring-purple-600 focus:border-purple-600 text-gray-900 placeholder:text-gray-600" placeholder="Inserisci il testo" value={personalizeText} onChange={(e) => setPersonalizeText(e.target.value)} />
+                  <input
+                    type="text"
+                    maxLength={50}
+                    className="w-full px-4 py-3 border border-gray-400 rounded-xl focus:ring-2 focus:ring-purple-600 focus:border-purple-600 text-gray-900 placeholder:text-gray-600"
+                    placeholder="Inserisci il testo (max 50)"
+                    value={personalizeText}
+                    onChange={(e) => setPersonalizeText(e.target.value.slice(0,25))}
+                  />
                 ) : null}
                 {personalizeMode === 'image' ? (
                   <div className="space-y-3">

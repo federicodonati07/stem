@@ -36,7 +36,9 @@ export default function OrdersPage() {
       setError(null);
       try {
         const res = await databases.listDocuments(dbId, ordersCol, [Query.equal('user_uuid', user.$id), Query.orderDesc('$createdAt'), Query.limit(50)]);
-        setOrders(res.documents as any[]);
+        const docs = (res.documents as any[]) || [];
+        const filtered = docs.filter((d) => String(d?.status || '').toLowerCase() !== 'archiviato');
+        setOrders(filtered);
       } catch {
         setError('Impossibile caricare gli ordini');
       } finally {

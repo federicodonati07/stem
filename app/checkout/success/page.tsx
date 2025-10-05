@@ -95,6 +95,8 @@ export default function CheckoutSuccessPage() {
           selected_products: consolidated,
         });
 
+        // (rimosso) gestione stock su checkout
+
         // 5) Aggiorna carrello: rimuovi gli item acquistati
         const remaining = parsed.filter((it: any) => !(it && it.purchased === true));
         await databases.updateDocument(dbId, cartsCol, cart.$id, { products: remaining.map((it: any) => JSON.stringify(it)) });

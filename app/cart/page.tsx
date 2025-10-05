@@ -196,7 +196,18 @@ export default function CartPage() {
                       <div className="flex items-center gap-2">
                         <Button variant="bordered" className="h-9 px-3 rounded-full border-gray-400 text-gray-800" onClick={() => updateQuantity(g.sample.uuid, Math.max(0, g.quantity - 1), g.sample.personalized, g.sample.color)}>-</Button>
                         <span className="w-10 text-center font-semibold text-gray-900">x{g.quantity}</span>
-                        <Button variant="bordered" className="h-9 px-3 rounded-full border-gray-400 text-gray-800" onClick={() => updateQuantity(g.sample.uuid, g.quantity + 1, g.sample.personalized, g.sample.color)}>+</Button>
+                        <Button
+                          variant="bordered"
+                          className="h-9 px-3 rounded-full border-gray-400 text-gray-800"
+                          onClick={() => {
+                            const max = Math.max(0, Number(products[g.sample.uuid]?.stock || 0));
+                            if (g.quantity + 1 > max) return; // prevent exceeding stock
+                            updateQuantity(g.sample.uuid, g.quantity + 1, g.sample.personalized, g.sample.color);
+                          }}
+                          isDisabled={g.quantity >= Math.max(0, Number(products[g.sample.uuid]?.stock || 0))}
+                        >
+                          +
+                        </Button>
                       </div>
                       <Button variant="bordered" className="h-9 px-3 rounded-full border-red-300 text-red-700" onClick={() => removeItem(g.sample.uuid, g.sample.personalized, g.sample.color)}>Rimuovi</Button>
                     </div>

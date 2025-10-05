@@ -8,6 +8,8 @@ import { Menu, X, ShoppingBag, User, Palette, Home, Info } from 'lucide-react';
 import { Button } from '@heroui/react';
 import Link from 'next/link';
 import { useCart } from './CartContext';
+import { databases, Query } from "./auth/appwriteClient";
+import { usePathname } from "next/navigation";
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -15,6 +17,28 @@ const Header = () => {
   const avatarRef = useRef<HTMLDivElement>(null);
   const { user, userInfo, isAdmin, loading, logout } = useAccount();
   const { cartCount } = useCart();
+  const pathname = usePathname();
+  const [ordersToReview, setOrdersToReview] = useState<number>(0);
+
+  // Fetch count of 'pagato' orders for admin badge
+  React.useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      try {
+        if (!isAdmin) { setOrdersToReview(0); return; }
+        const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB as string | undefined;
+        const ordersCol = process.env.NEXT_PUBLIC_APPWRITE_ORDERS_DB as string | undefined;
+        if (!dbId || !ordersCol) { setOrdersToReview(0); return; }
+        const res = await databases.listDocuments(dbId, ordersCol, [Query.equal('status', 'pagato'), Query.limit(1)]);
+        if (!cancelled) setOrdersToReview(Number(res.total || 0));
+      } catch {
+        if (!cancelled) setOrdersToReview(0);
+      }
+    }
+    run();
+    const t = setInterval(run, 60000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [isAdmin]);
 
   // Chiudi il menu avatar se clicchi fuori
   React.useEffect(() => {
@@ -110,8 +134,15 @@ const Header = () => {
                         href="/admin"
                         className="flex items-center px-4 py-2 text-yellow-700 hover:bg-yellow-50 transition-colors font-semibold border-b border-yellow-100"
                       >
-                        <List size={16} className="mr-2" />
-                        Dashboard
+                        <span className="relative inline-flex items-center">
+                          <List size={16} className="mr-2" />
+                          Dashboard
+                          {ordersToReview > 0 && (
+                            <span className="ml-2 inline-flex items-center justify-center h-5 min-w-[20px] px-1 rounded-full bg-red-600 text-white text-xs font-semibold">
+                              {ordersToReview}
+                            </span>
+                          )}
+                        </span>
                       </a>
                     ) : (
                       <a
