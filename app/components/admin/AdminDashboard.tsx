@@ -13,7 +13,12 @@ import {
   Eye,
   Edit,
   Trash2,
-  Plus
+  Plus,
+  ChevronDown,
+  ChevronRight,
+  CreditCard,
+  Truck,
+  MapPin
 } from 'lucide-react';
 import React from 'react';
 import { ResponsiveContainer, AreaChart, Area, Tooltip, XAxis, YAxis } from 'recharts';
@@ -26,49 +31,62 @@ const AdminDashboard = () => {
   const [usersSeries, setUsersSeries] = useState<Array<{ date: string; count: number }>>([]);
   const [usersGrowth, setUsersGrowth] = useState<number | null>(null);
 
-  // Mock data for orders
-  const orders = [
-    {
-      id: 'ORD-001',
-      customer: 'Mario Rossi',
-      email: 'mario.rossi@email.com',
-      product: 'Sticker Pack Vintage',
-      quantity: 2,
-      total: '€25.98',
-      status: 'completed',
-      date: '2024-01-15'
-    },
-    {
-      id: 'ORD-002',
-      customer: 'Giulia Bianchi',
-      email: 'giulia.bianchi@email.com',
-      product: 'Sticker Personalizzato',
-      quantity: 1,
-      total: '€15.99',
-      status: 'processing',
-      date: '2024-01-14'
-    },
-    {
-      id: 'ORD-003',
-      customer: 'Luca Verdi',
-      email: 'luca.verdi@email.com',
-      product: 'Sticker Pack Neon',
-      quantity: 3,
-      total: '€47.97',
-      status: 'shipped',
-      date: '2024-01-13'
-    },
-    {
-      id: 'ORD-004',
-      customer: 'Anna Neri',
-      email: 'anna.neri@email.com',
-      product: 'Sticker Kawaii',
-      quantity: 1,
-      total: '€14.99',
-      status: 'pending',
-      date: '2024-01-12'
-    }
-  ];
+  type Address = {
+    fullName: string;
+    line1: string;
+    line2?: string;
+    city: string;
+    postalCode: string;
+    state?: string;
+    country: string;
+    phone?: string;
+  };
+
+  type OrderItem = {
+    id: string;
+    name: string;
+    sku?: string;
+    quantity: number;
+    unitPrice: number; // cents
+  };
+
+  type Order = {
+    id: string;
+    customerName: string;
+    email: string;
+    items: OrderItem[];
+    totals: {
+      subtotal: number;
+      shipping: number;
+      tax: number;
+      total: number;
+      currency: 'EUR';
+    };
+    status: 'pending' | 'processing' | 'shipped' | 'completed' | 'cancelled' | 'refunded';
+    createdAt: string;
+    date: string;
+    shippingAddress: Address;
+    billingAddress: Address;
+    payment: {
+      method: string;
+      status: 'pending' | 'paid' | 'refunded' | 'failed';
+      transactionId?: string;
+    };
+    shipping: {
+      method: string;
+      status: 'pending' | 'in_transit' | 'delivered';
+      trackingNumber?: string;
+    };
+    notes?: string;
+  };
+
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+
+  const formatEuro = (cents: number) =>
+    new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cents / 100);
 
   const stats = [
     {
@@ -139,6 +157,239 @@ const AdminDashboard = () => {
     return () => { cancelled = true; };
   }, []);
 
+  // Fetch orders with search
+  React.useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    const run = async () => {
+      setOrdersLoading(true);
+      setOrdersError(null);
+      try {
+        const params = new URLSearchParams();
+        if (searchTerm) params.set('q', searchTerm);
+        const res = await fetch(`/api/admin/orders?${params.toString()}` as string, {
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error('Failed');
+        const data = await res.json();
+        if (!cancelled) setOrders(Array.isArray(data?.orders) ? data.orders : []);
+      } catch (e) {
+        if (!cancelled) setOrdersError('Impossibile caricare gli ordini');
+      } finally {
+        if (!cancelled) setOrdersLoading(false);
+      }
+    };
+    const t = setTimeout(run, 250);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      clearTimeout(t);
+    };
+  }, [searchTerm]);
+
+  const toggleExpand = (id: string) => {
+    setExpandedOrderId((prev) => (prev === id ? null : id));
+  };
+
+  // Build table rows to satisfy strict typing (no null/false children)
+  const renderedRows: any[] = React.useMemo(() => {
+    const rows: any[] = [];
+    if (ordersLoading) {
+      rows.push(
+        <TableRow key="loading">
+          <TableCell colSpan={7}>
+            <div className="py-8 text-center text-gray-500">Caricamento ordini...</div>
+          </TableCell>
+        </TableRow>
+      );
+      return rows;
+    }
+    if (ordersError) {
+      rows.push(
+        <TableRow key="error">
+          <TableCell colSpan={7}>
+            <div className="py-8 text-center text-red-600">{ordersError}</div>
+          </TableCell>
+        </TableRow>
+      );
+      return rows;
+    }
+    if (orders.length === 0) {
+      rows.push(
+        <TableRow key="empty">
+          <TableCell colSpan={7}>
+            <div className="py-8 text-center text-gray-500">Nessun ordine trovato</div>
+          </TableCell>
+        </TableRow>
+      );
+      return rows;
+    }
+    orders.forEach((order) => {
+      const itemsPreview = order.items[0]?.name || '-';
+      const more = Math.max(order.items.length - 1, 0);
+      const expanded = expandedOrderId === order.id;
+      rows.push(
+        <TableRow key={order.id}>
+          <TableCell className="font-medium">
+            <div className="flex items-center">
+              <button
+                aria-label={expanded ? 'Chiudi dettagli' : 'Apri dettagli'}
+                className="mr-2 text-gray-500 hover:text-gray-900"
+                onClick={() => toggleExpand(order.id)}
+              >
+                {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              </button>
+              {order.id}
+            </div>
+          </TableCell>
+          <TableCell>
+            <div>
+              <div className="font-medium">{order.customerName}</div>
+              <div className="text-sm text-gray-500">{order.email}</div>
+            </div>
+          </TableCell>
+          <TableCell>
+            <div className="text-gray-900">
+              {itemsPreview}{more > 0 ? ` +${more}` : ''}
+            </div>
+          </TableCell>
+          <TableCell className="font-medium">{formatEuro(order.totals.total)}</TableCell>
+          <TableCell>
+            <Chip color={getStatusColor(order.status)} variant="flat" size="sm">
+              {getStatusText(order.status)}
+            </Chip>
+          </TableCell>
+          <TableCell>{order.date}</TableCell>
+          <TableCell>
+            <div className="flex items-center space-x-2">
+              <Button
+                isIconOnly
+                size="sm"
+                variant="ghost"
+                className="text-blue-600 hover:bg-blue-50"
+                onPress={() => toggleExpand(order.id)}
+              >
+                <Eye size={16} />
+              </Button>
+              <Button isIconOnly size="sm" variant="ghost" className="text-green-600 hover:bg-green-50">
+                <Edit size={16} />
+              </Button>
+              <Button isIconOnly size="sm" variant="ghost" className="text-red-600 hover:bg-red-50">
+                <Trash2 size={16} />
+              </Button>
+            </div>
+          </TableCell>
+        </TableRow>
+      );
+      if (expanded) {
+        rows.push(
+          <TableRow key={`${order.id}-details`}>
+            <TableCell colSpan={7}>
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-5">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div className="lg:col-span-2">
+                    <h4 className="font-semibold text-gray-900 mb-3">Articoli</h4>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-gray-600">
+                            <th className="py-2 pr-4">Nome</th>
+                            <th className="py-2 pr-4">SKU</th>
+                            <th className="py-2 pr-4">Qtà</th>
+                            <th className="py-2 pr-4">Prezzo</th>
+                            <th className="py-2 pr-4">Totale</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {order.items.map((it) => (
+                            <tr key={it.id} className="border-t border-gray-200">
+                              <td className="py-2 pr-4 text-gray-900">{it.name}</td>
+                              <td className="py-2 pr-4 text-gray-600">{it.sku || '-'}</td>
+                              <td className="py-2 pr-4">{it.quantity}</td>
+                              <td className="py-2 pr-4">{formatEuro(it.unitPrice)}</td>
+                              <td className="py-2 pr-4 font-medium">{formatEuro(it.unitPrice * it.quantity)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="mt-4 flex flex-col items-end space-y-1 text-sm">
+                      <div className="flex justify-between w-64">
+                        <span className="text-gray-600">Subtotale</span>
+                        <span className="text-gray-900">{formatEuro(order.totals.subtotal)}</span>
+                      </div>
+                      <div className="flex justify-between w-64">
+                        <span className="text-gray-600">Spedizione</span>
+                        <span className="text-gray-900">{formatEuro(order.totals.shipping)}</span>
+                      </div>
+                      <div className="flex justify-between w-64">
+                        <span className="text-gray-600">Tasse</span>
+                        <span className="text-gray-900">{formatEuro(order.totals.tax)}</span>
+                      </div>
+                      <div className="flex justify-between w-64 font-semibold">
+                        <span className="text-gray-900">Totale</span>
+                        <span className="text-gray-900">{formatEuro(order.totals.total)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-6">
+                    <div>
+                      <h4 className="font-semibold text-gray-900 mb-3">Dettagli pagamento</h4>
+                      <div className="text-sm space-y-1">
+                        <div className="flex items-center text-gray-700"><CreditCard size={16} className="mr-2" />Metodo: {order.payment.method}</div>
+                        <div className="flex items-center text-gray-700">Stato: {order.payment.status}</div>
+                        {order.payment.transactionId && (
+                          <div className="flex items-center text-gray-700">Transazione: {order.payment.transactionId}</div>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-900 mb-3">Spedizione</h4>
+                      <div className="text-sm space-y-1">
+                        <div className="flex items-center text-gray-700"><Truck size={16} className="mr-2" />Metodo: {order.shipping.method}</div>
+                        <div className="flex items-center text-gray-700">Stato: {order.shipping.status}</div>
+                        {order.shipping.trackingNumber && (
+                          <div className="flex items-center text-gray-700">Tracking: {order.shipping.trackingNumber}</div>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-900 mb-3">Indirizzi</h4>
+                      <div className="text-sm">
+                        <div className="mb-2">
+                          <div className="font-medium flex items-center text-gray-900"><MapPin size={16} className="mr-2" />Spedizione</div>
+                          <div className="text-gray-700">{order.shippingAddress.fullName}</div>
+                          <div className="text-gray-700">{order.shippingAddress.line1}{order.shippingAddress.line2 ? `, ${order.shippingAddress.line2}` : ''}</div>
+                          <div className="text-gray-700">{order.shippingAddress.postalCode} {order.shippingAddress.city} {order.shippingAddress.state ? `(${order.shippingAddress.state})` : ''}</div>
+                          <div className="text-gray-700">{order.shippingAddress.country}{order.shippingAddress.phone ? `, ${order.shippingAddress.phone}` : ''}</div>
+                        </div>
+                        <div>
+                          <div className="font-medium text-gray-900">Fatturazione</div>
+                          <div className="text-gray-700">{order.billingAddress.fullName}</div>
+                          <div className="text-gray-700">{order.billingAddress.line1}{order.billingAddress.line2 ? `, ${order.billingAddress.line2}` : ''}</div>
+                          <div className="text-gray-700">{order.billingAddress.postalCode} {order.billingAddress.city} {order.billingAddress.state ? `(${order.billingAddress.state})` : ''}</div>
+                          <div className="text-gray-700">{order.billingAddress.country}</div>
+                        </div>
+                      </div>
+                    </div>
+                    {order.notes ? (
+                      <div>
+                        <h4 className="font-semibold text-gray-900 mb-2">Note</h4>
+                        <p className="text-sm text-gray-700">{order.notes}</p>
+                      </div>
+                    ) : undefined}
+                  </div>
+                </div>
+              </div>
+            </TableCell>
+          </TableRow>
+        );
+      }
+    });
+    return rows;
+  }, [ordersLoading, ordersError, orders, expandedOrderId]);
+
   const UsersChart = ({ series }: { series: Array<{ date: string; count: number }> }) => {
     if (!series.length) return <div className="h-16" />;
     const data = series.map((s) => ({ date: s.date.slice(5), value: s.count }));
@@ -179,6 +430,9 @@ const AdminDashboard = () => {
         return 'primary';
       case 'pending':
         return 'default';
+      case 'cancelled':
+      case 'refunded':
+        return 'danger';
       default:
         return 'default';
     }
@@ -194,6 +448,10 @@ const AdminDashboard = () => {
         return 'Spedito';
       case 'pending':
         return 'In attesa';
+      case 'cancelled':
+        return 'Annullato';
+      case 'refunded':
+        return 'Rimborsato';
       default:
         return status;
     }
@@ -277,7 +535,8 @@ const AdminDashboard = () => {
           ))}
         </motion.div>
 
-        {/* Orders Table */}
+        {/* Orders Table */
+        }
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -317,67 +576,13 @@ const AdminDashboard = () => {
                 <TableHeader>
                   <TableColumn>ID ORDINE</TableColumn>
                   <TableColumn>CLIENTE</TableColumn>
-                  <TableColumn>PRODOTTO</TableColumn>
-                  <TableColumn>QUANTITÀ</TableColumn>
+                  <TableColumn>ARTICOLI</TableColumn>
                   <TableColumn>TOTALE</TableColumn>
                   <TableColumn>STATO</TableColumn>
                   <TableColumn>DATA</TableColumn>
                   <TableColumn>AZIONI</TableColumn>
                 </TableHeader>
-                <TableBody>
-                  {orders.map((order) => (
-                    <TableRow key={order.id}>
-                      <TableCell className="font-medium">{order.id}</TableCell>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{order.customer}</div>
-                          <div className="text-sm text-gray-500">{order.email}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{order.product}</TableCell>
-                      <TableCell>{order.quantity}</TableCell>
-                      <TableCell className="font-medium">{order.total}</TableCell>
-                      <TableCell>
-                        <Chip
-                          color={getStatusColor(order.status)}
-                          variant="flat"
-                          size="sm"
-                        >
-                          {getStatusText(order.status)}
-                        </Chip>
-                      </TableCell>
-                      <TableCell>{order.date}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          <Button
-                            isIconOnly
-                            size="sm"
-                            variant="ghost"
-                            className="text-blue-600 hover:bg-blue-50"
-                          >
-                            <Eye size={16} />
-                          </Button>
-                          <Button
-                            isIconOnly
-                            size="sm"
-                            variant="ghost"
-                            className="text-green-600 hover:bg-green-50"
-                          >
-                            <Edit size={16} />
-                          </Button>
-                          <Button
-                            isIconOnly
-                            size="sm"
-                            variant="ghost"
-                            className="text-red-600 hover:bg-red-50"
-                          >
-                            <Trash2 size={16} />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
+                <TableBody>{renderedRows}</TableBody>
               </Table>
             </CardBody>
           </Card>

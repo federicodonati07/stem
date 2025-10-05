@@ -77,6 +77,13 @@ export default function CheckoutSuccessPage() {
           }
         }
         const consolidated = Array.from(groupMap.values()).map((it) => JSON.stringify(it));
+        // Calcola totale in EUR (somma quantità x unit_price)
+        let orderTotal = 0;
+        for (const it of groupMap.values()) {
+          const qty = Number(it.quantity) || 0;
+          const unit = parseFloat(String(it.unit_price));
+          orderTotal += (Number.isFinite(unit) ? unit : 0) * qty;
+        }
 
         // 4) Crea UN ordine con tutti i prodotti consolidati
         const orderId = ID.unique();
@@ -84,7 +91,7 @@ export default function CheckoutSuccessPage() {
           status: 'pagato',
           user_uuid: String(user.$id).slice(0, 700),
           order_uuid: orderId,
-          bill: sid.toString().slice(0, 100),
+          bill: orderTotal.toFixed(2),
           selected_products: consolidated,
         });
 
