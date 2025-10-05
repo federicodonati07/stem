@@ -126,6 +126,8 @@ const ProductGrid = () => {
                 variants={itemVariants}
                 whileHover={{ y: -8 }}
                 transition={{ duration: 0.3, ease: [0.42, 0, 0.58, 1] }}
+                onClick={() => { window.location.href = `/product/${product.uuid}`; }}
+                className="cursor-pointer"
               >
                 <Card className="h-full group cursor-pointer border border-gray-200 hover:border-purple-300 hover:shadow-xl transition-all duration-300 rounded-2xl">
                   <CardBody className="p-4 rounded-2xl">
@@ -180,17 +182,11 @@ const ProductGrid = () => {
                   </CardBody>
 
                   <CardFooter className="pt-0 px-4 pb-4 rounded-2xl">
-                    {product.personalizable ? (
-                      <Link href="/#customize" className="w-full">
-                        <Button className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-full">
-                          Personalizza
-                        </Button>
-                      </Link>
-                    ) : (
-                      <Button className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-full" startContent={<ShoppingCart size={16} />} onClick={() => addToCart(product.uuid, 1)}>
-                        Aggiungi al carrello
+                    <Link href={`/product/${product.uuid}`} className="w-full" onClick={(e) => e.stopPropagation()}>
+                      <Button className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-full">
+                        Visualizza prodotto
                       </Button>
-                    )}
+                    </Link>
                   </CardFooter>
                 </Card>
               </motion.div>

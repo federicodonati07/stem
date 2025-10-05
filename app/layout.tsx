@@ -4,6 +4,7 @@ import "./globals.css";
 import { HeroUIProvider } from "@heroui/react";
 import { AccountProvider } from "./components/AccountContext";
 import ShippingInfoGuard from "./components/ShippingInfoGuard";
+import { CartProvider } from "./components/CartContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,9 +33,11 @@ export default function RootLayout({
       >
         <HeroUIProvider>
           <AccountProvider>
-            <ShippingInfoGuard>
-              {children}
-            </ShippingInfoGuard>
+            <CartProvider>
+              <ShippingInfoGuard>
+                {children}
+              </ShippingInfoGuard>
+            </CartProvider>
           </AccountProvider>
         </HeroUIProvider>
       </body>

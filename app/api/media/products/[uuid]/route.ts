@@ -7,6 +7,10 @@ export async function GET(
   const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
   const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
   const bucketId = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_STORAGE;
+  const apiKey =
+    process.env.NEXT_APPWRITE_API_KEY ||
+    process.env.APPWRITE_API_KEY ||
+    process.env.NEXT_PUBLIC_APPWRITE_API_KEY;
 
   if (!endpoint || !projectId || !bucketId) {
     return new NextResponse("Missing Appwrite config", { status: 500 });
@@ -14,13 +18,12 @@ export async function GET(
   try {
     const base = endpoint.replace(/\/$/, "");
     const url = `${base}/storage/buckets/${bucketId}/files/${params.uuid}/view`;
-    const res = await fetch(url, {
-      headers: {
-        "X-Appwrite-Project": projectId,
-      },
-      cache: "no-store",
-    });
+    const headers: Record<string, string> = { "X-Appwrite-Project": projectId };
+    if (apiKey) headers["X-Appwrite-Key"] = apiKey;
+
+    const res = await fetch(url, { headers, cache: "no-store" });
     if (!res.ok) {
+      console.error("media proxy error", res.status, params.uuid);
       return new NextResponse("Not found", { status: 404 });
     }
     const contentType = res.headers.get("content-type") || "image/png";
@@ -34,7 +37,8 @@ export async function GET(
         Vary: "*",
       },
     });
-  } catch {
+  } catch (e) {
+    console.error("media proxy server error", e);
     return new NextResponse("Server error", { status: 500 });
   }
 }
