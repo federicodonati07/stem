@@ -24,6 +24,7 @@
     "react-select": "^5.10.2",
     "react-select-country-list": "^2.2.3",
     "recharts": "^3.2.1",
+    "stripe": "^19.1.0",
     "use-places-autocomplete": "^4.0.1"
   },
   "devDependencies": {

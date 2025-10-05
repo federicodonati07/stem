@@ -108,7 +108,7 @@ const Header = () => {
                     {isAdmin ? (
                       <a
                         href="/admin"
-                        className="flex items-center px-4 py-2 text-purple-700 hover:bg-purple-50 transition-colors font-semibold"
+                        className="flex items-center px-4 py-2 text-yellow-700 hover:bg-yellow-50 transition-colors font-semibold border-b border-yellow-100"
                       >
                         <List size={16} className="mr-2" />
                         Dashboard
@@ -116,7 +116,7 @@ const Header = () => {
                     ) : (
                       <a
                         href="/orders"
-                        className="flex items-center px-4 py-2 text-gray-700 hover:bg-gray-50 transition-colors"
+                        className="flex items-center px-4 py-2 text-yellow-700 hover:bg-yellow-50 transition-colors font-semibold border-b border-yellow-100"
                       >
                         <List size={16} className="mr-2" />
                         I miei ordini
@@ -196,7 +196,7 @@ const Header = () => {
                 {isAdmin ? (
                   <Link href="/admin" onClick={() => setIsMenuOpen(false)}>
                     <Button
-                      className="w-full text-purple-700 hover:text-purple-900 rounded-full justify-start"
+                      className="w-full text-yellow-700 hover:text-yellow-900 rounded-full justify-start"
                       variant="ghost"
                       startContent={<List size={16} />}
                     >
@@ -206,7 +206,7 @@ const Header = () => {
                 ) : (
                   <Link href="/orders" onClick={() => setIsMenuOpen(false)}>
                     <Button
-                      className="w-full text-gray-700 hover:text-gray-900 rounded-full justify-start"
+                      className="w-full text-yellow-700 hover:text-yellow-900 rounded-full justify-start"
                       variant="ghost"
                       startContent={<List size={16} />}
                     >
