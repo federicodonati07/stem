@@ -7,12 +7,14 @@ import { motion } from 'framer-motion';
 import { Menu, X, ShoppingBag, User, Palette, Home, Info } from 'lucide-react';
 import { Button } from '@heroui/react';
 import Link from 'next/link';
+import { useCart } from './CartContext';
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [avatarMenu, setAvatarMenu] = useState(false);
   const avatarRef = useRef<HTMLDivElement>(null);
   const { user, userInfo, isAdmin, loading, logout } = useAccount();
+  const { cartCount } = useCart();
 
   // Chiudi il menu avatar se clicchi fuori
   React.useEffect(() => {
@@ -87,6 +89,15 @@ const Header = () => {
                 </button>
                 {avatarMenu && (
                   <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-2">
+                    <Link href="/cart" className="flex items-center px-4 py-2 hover:bg-gray-50 transition-colors">
+                      <span className="relative inline-flex items-center">
+                        <ShoppingBag size={16} className="mr-2" />
+                        Carrello
+                        {cartCount > 0 && (
+                          <span className="ml-2 inline-flex items-center justify-center h-5 min-w-[20px] px-1 rounded-full bg-purple-600 text-white text-xs font-semibold">{cartCount}</span>
+                        )}
+                      </span>
+                    </Link>
                     <a
                       href="/shipping-info"
                       className="flex items-center px-4 py-2 text-blue-700 hover:bg-blue-50 transition-colors font-semibold border-b border-blue-100"

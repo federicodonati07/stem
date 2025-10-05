@@ -6,6 +6,7 @@ import { ShoppingCart, Star } from 'lucide-react';
 import React from 'react';
 import { databases, Query } from './auth/appwriteClient';
 import Link from 'next/link';
+import { useCart } from './CartContext';
 
 type Product = {
   $id: string;
@@ -23,6 +24,7 @@ const ProductGrid = () => {
   const [products, setProducts] = React.useState<Product[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const { addToCart } = useCart();
 
   React.useEffect(() => {
     const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB as string | undefined;
@@ -185,7 +187,7 @@ const ProductGrid = () => {
                         </Button>
                       </Link>
                     ) : (
-                      <Button className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-full" startContent={<ShoppingCart size={16} />}>
+                      <Button className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-full" startContent={<ShoppingCart size={16} />} onClick={() => addToCart(product.uuid, 1)}>
                         Aggiungi al carrello
                       </Button>
                     )}

@@ -40,7 +40,7 @@ const mockProducts = [
 export default function AdminDashboard() {
   const { user, isAdmin, loading } = useAccount();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'create'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'create' | 'categories'>('orders');
   const [usersTotal, setUsersTotal] = useState<number | null>(null);
   const [usersLoading, setUsersLoading] = useState(true);
   const [usersError, setUsersError] = useState<string | null>(null);
@@ -130,27 +130,29 @@ export default function AdminDashboard() {
   const [newCategory, setNewCategory] = useState("");
   const [categoryMsg, setCategoryMsg] = useState<string | null>(null);
 
-  const fetchCategories = useCallback(async () => {
-    if (!dbId || !categoriesCol) return;
-    setCategoriesLoading(true);
-    setCategoriesError(null);
-    try {
-      const res = await databases.listDocuments(dbId, categoriesCol, []);
-      const list = (res.documents || []) as any[];
-      const mapped: Category[] = list.map((d) => ({ $id: d.$id, name: String(d.name ?? "") }));
-      // sort by name asc
-      mapped.sort((a, b) => a.name.localeCompare(b.name));
-      setCategories(mapped);
-    } catch {
-      setCategoriesError("Impossibile caricare le categorie");
-    } finally {
-      setCategoriesLoading(false);
-    }
-  }, [dbId, categoriesCol]);
-
   useEffect(() => {
-    fetchCategories();
-  }, [fetchCategories]);
+    let cancelled = false;
+    async function run() {
+      if (!dbId || !categoriesCol) return;
+      setCategoriesLoading(true);
+      setCategoriesError(null);
+      try {
+        const res = await databases.listDocuments(dbId, categoriesCol, []);
+        if (cancelled) return;
+        const list = (res.documents || []) as any[];
+        const mapped: Category[] = list.map((d) => ({ $id: d.$id, name: String(d.name ?? "") }));
+        mapped.sort((a, b) => a.name.localeCompare(b.name));
+        setCategories(mapped);
+      } catch (e) {
+        console.error('fetchCategories error', e);
+        if (!cancelled) setCategoriesError("Impossibile caricare le categorie");
+      } finally {
+        if (!cancelled) setCategoriesLoading(false);
+      }
+    }
+    run();
+    return () => { cancelled = true; };
+  }, [dbId, categoriesCol]);
 
   async function addCategory() {
     if (!dbId || !categoriesCol) return;
@@ -160,9 +162,19 @@ export default function AdminDashboard() {
       await databases.createDocument(dbId, categoriesCol, ID.unique(), { name });
       setNewCategory("");
       setCategoryMsg("Categoria aggiunta");
-      await fetchCategories();
+      // refresh categories
+      if (dbId && categoriesCol) {
+        try {
+          const res = await databases.listDocuments(dbId, categoriesCol, []);
+          const list = (res.documents || []) as any[];
+          const mapped: Category[] = list.map((d) => ({ $id: d.$id, name: String(d.name ?? "") }));
+          mapped.sort((a, b) => a.name.localeCompare(b.name));
+          setCategories(mapped);
+        } catch (e) { console.error('refresh categories after add error', e); }
+      }
       setPCategory(name);
-    } catch {
+    } catch (e) {
+      console.error('addCategory error', e);
       setCategoryMsg("Errore aggiunta categoria");
     }
   }
@@ -171,10 +183,19 @@ export default function AdminDashboard() {
     if (!dbId || !categoriesCol) return;
     try {
       await databases.deleteDocument(dbId, categoriesCol, id);
-      await fetchCategories();
+      if (dbId && categoriesCol) {
+        try {
+          const res = await databases.listDocuments(dbId, categoriesCol, []);
+          const list = (res.documents || []) as any[];
+          const mapped: Category[] = list.map((d) => ({ $id: d.$id, name: String(d.name ?? "") }));
+          mapped.sort((a, b) => a.name.localeCompare(b.name));
+          setCategories(mapped);
+        } catch (e) { console.error('refresh categories after remove error', e); }
+      }
       if (pCategory === name) setPCategory("");
       setCategoryMsg("Categoria rimossa");
-    } catch {
+    } catch (e) {
+      console.error('removeCategory error', e);
       setCategoryMsg("Errore rimozione categoria");
     }
   }
@@ -480,10 +501,11 @@ export default function AdminDashboard() {
                 { id: 'orders', label: 'Ordini', icon: ShoppingCart },
                 { id: 'products', label: 'Prodotti', icon: Package },
                 { id: 'create', label: 'Crea Prodotto', icon: Plus },
+                { id: 'categories', label: 'Categorie', icon: Package },
               ].map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id as 'orders' | 'products' | 'create')}
+                  onClick={() => setActiveTab(tab.id as 'orders' | 'products' | 'create' | 'categories')}
                   className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                     activeTab === tab.id
                       ? 'border-purple-500 text-purple-600'
@@ -716,30 +738,6 @@ export default function AdminDashboard() {
                             <option key={c.$id} value={c.name}>{c.name}</option>
                           ))}
                         </select>
-                        <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2 items-start">
-                          <div className="flex items-center gap-2 md:col-span-2">
-                            <input
-                              type="text"
-                              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-purple-600 text-gray-900 placeholder:text-gray-600"
-                              placeholder="Nuova categoria"
-                              value={newCategory}
-                              onChange={(e) => setNewCategory(e.target.value)}
-                              maxLength={50}
-                            />
-                            <Button type="button" className="h-10 px-4 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white" disabled={!newCategory.trim()} onClick={addCategory}>Aggiungi</Button>
-                          </div>
-                          <div className="text-right md:text-left text-xs text-gray-500 self-center">{categoryMsg}</div>
-                        </div>
-                        {categories.length > 0 ? (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {categories.map((c) => (
-                              <span key={c.$id} className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border ${pCategory === c.name ? 'border-purple-400 bg-purple-50' : 'border-gray-200'}`}>
-                                <span className="text-sm text-gray-700">{c.name}</span>
-                                <button type="button" className="text-gray-500 hover:text-red-600" onClick={() => removeCategoryById(c.$id, c.name)}>×</button>
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
                         {categoriesLoading ? <p className="text-xs text-gray-500 mt-1">Caricamento categorie...</p> : null}
                         {categoriesError ? <p className="text-xs text-red-600 mt-1">{categoriesError}</p> : null}
                       </div>
@@ -929,6 +927,53 @@ export default function AdminDashboard() {
                       </Button>
                     </div>
                   </form>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'categories' && (
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Gestione Categorie</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Nuova categoria</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        className="flex-1 px-3 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-600 focus:border-purple-600 text-gray-900 placeholder:text-gray-600"
+                        placeholder="Es. Tazze, Sticker, Abbigliamento"
+                        value={newCategory}
+                        onChange={(e) => setNewCategory(e.target.value)}
+                        maxLength={50}
+                      />
+                      <Button type="button" className="h-11 px-5 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold" disabled={!newCategory.trim()} onClick={addCategory}>Aggiungi</Button>
+                    </div>
+                    {categoryMsg ? <p className="text-xs text-gray-500 mt-2">{categoryMsg}</p> : null}
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-3 px-4 font-semibold text-gray-900">Nome</th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-900">Azioni</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {categories.map((c) => (
+                        <tr key={c.$id} className="border-b border-gray-100">
+                          <td className="py-3 px-4 text-gray-900">
+                            {c.name}
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              <Button type="button" variant="bordered" className="rounded-full border-red-300 text-red-700" onClick={() => removeCategoryById(c.$id, c.name)}>Rimuovi</Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
