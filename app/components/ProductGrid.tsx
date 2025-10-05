@@ -1,84 +1,65 @@
-'use client';
+"use client";
 
-import { motion, cubicBezier } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Button, Card, CardBody, CardFooter } from '@heroui/react';
-import { ShoppingCart, Heart, Star } from 'lucide-react';
+import { ShoppingCart, Star } from 'lucide-react';
+import React from 'react';
+import { databases, Query } from './auth/appwriteClient';
+import Link from 'next/link';
+
+type Product = {
+  $id: string;
+  name: string;
+  price: string;
+  uuid: string;
+  img_url?: string;
+  personalizable?: boolean;
+  description?: string;
+  stock?: number;
+  colors?: string[];
+};
 
 const ProductGrid = () => {
-  const products = [
-    {
-      id: 1,
-      name: 'Sticker Pack Vintage',
-      price: '€12.99',
-      image: '🎨',
-      rating: 4.8,
-      reviews: 124,
-      badge: 'Popolare'
-    },
-    {
-      id: 2,
-      name: 'Sticker Minimalist',
-      price: '€9.99',
-      image: '✨',
-      rating: 4.9,
-      reviews: 89,
-      badge: 'Nuovo'
-    },
-    {
-      id: 3,
-      name: 'Sticker Neon',
-      price: '€15.99',
-      image: '💫',
-      rating: 4.7,
-      reviews: 156,
-      badge: null
-    },
-    {
-      id: 4,
-      name: 'Sticker Nature',
-      price: '€11.99',
-      image: '🌿',
-      rating: 4.6,
-      reviews: 98,
-      badge: null
-    },
-    {
-      id: 5,
-      name: 'Sticker Abstract',
-      price: '€13.99',
-      image: '🎭',
-      rating: 4.8,
-      reviews: 112,
-      badge: 'Trending'
-    },
-    {
-      id: 6,
-      name: 'Sticker Geometric',
-      price: '€10.99',
-      image: '🔷',
-      rating: 4.5,
-      reviews: 76,
-      badge: null
-    },
-    {
-      id: 7,
-      name: 'Sticker Kawaii',
-      price: '€14.99',
-      image: '🌸',
-      rating: 4.9,
-      reviews: 203,
-      badge: 'Best Seller'
-    },
-    {
-      id: 8,
-      name: 'Sticker Space',
-      price: '€16.99',
-      image: '🚀',
-      rating: 4.7,
-      reviews: 87,
-      badge: null
+  const [products, setProducts] = React.useState<Product[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB as string | undefined;
+    const colId = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_DB as string | undefined;
+    if (!dbId || !colId) {
+      setError('Configurazione Appwrite mancante');
+      setLoading(false);
+      return;
     }
-  ];
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await databases.listDocuments(dbId, colId, [
+          Query.equal('status', true),
+          Query.limit(100),
+        ]);
+        const list = (res.documents || []) as any[];
+        const mapped: Product[] = list.map((d) => ({
+          $id: d.$id,
+          name: String(d.name ?? ''),
+          price: String(d.price ?? ''),
+          uuid: String(d.uuid ?? ''),
+          img_url: typeof d.img_url === 'string' ? d.img_url.split('?')[0] : undefined,
+          personalizable: !!d.personalizable,
+          description: String(d.description ?? ''),
+          stock: Number(d.stock ?? 0),
+          colors: Array.isArray(d.colors) ? d.colors.map((c: any) => String(c)) : [],
+        }));
+        setProducts(mapped);
+      } catch {
+        setError('Impossibile caricare i prodotti');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -97,7 +78,7 @@ const ProductGrid = () => {
       y: 0,
       transition: {
         duration: 0.6,
-        ease: cubicBezier(0.42, 0, 0.58, 1)
+        ease: 'easeOut'
       }
     }
   };
@@ -105,7 +86,6 @@ const ProductGrid = () => {
   return (
     <section id="shop" className="py-20 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Section Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -120,120 +100,101 @@ const ProductGrid = () => {
             </span>
           </h2>
           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Scopri la nostra collezione di sticker premium, progettati per durare e stupire
+            Scopri la nostra collezione di prodotti disponibili
           </p>
         </motion.div>
 
-        {/* Products Grid */}
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true }}
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
-        >
-          {products.map((product) => (
-            <motion.div
-              key={product.id}
-              variants={itemVariants}
-              whileHover={{ y: -8 }}
-              transition={{ duration: 0.3, ease: cubicBezier(0.42, 0, 0.58, 1) }}
-            >
-              <Card className="h-full group cursor-pointer border border-gray-200 hover:border-purple-300 hover:shadow-xl transition-all duration-300 rounded-2xl">
-                <CardBody className="p-4 rounded-2xl">
-                  {/* Badge */}
-                  {product.badge && (
-                    <div className="absolute top-2 left-2 z-10">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                        product.badge === 'Popolare' ? 'bg-red-100 text-red-700' :
-                        product.badge === 'Nuovo' ? 'bg-green-100 text-green-700' :
-                        product.badge === 'Trending' ? 'bg-purple-100 text-purple-700' :
-                        product.badge === 'Best Seller' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-gray-100 text-gray-700'
-                      }`}>
-                        {product.badge}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Wishlist Button */}
-                  <Button
-                    isIconOnly
-                    variant="ghost"
-                    size="sm"
-                    className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-full"
-                  >
-                    <Heart size={16} />
-                  </Button>
-
-                  {/* Product Image */}
-                  <div className="flex items-center justify-center h-32 w-32 mx-auto mb-4 bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl group-hover:from-purple-50 group-hover:to-blue-50 transition-all duration-300 shadow-md">
-                    <span className="text-5xl select-none">
-                      {product.image}
-                    </span>
-                  </div>
-
-                  {/* Product Info */}
-                  <div className="space-y-2">
-                    <h3 className="font-semibold text-gray-900 group-hover:text-purple-600 transition-colors duration-200">
-                      {product.name}
-                    </h3>
-                    
-                    {/* Rating */}
-                    <div className="flex items-center space-x-1">
-                      <div className="flex items-center">
-                        {[...Array(5)].map((_, i) => (
-                          <Star
-                            key={i}
-                            size={12}
-                            className={`${
-                              i < Math.floor(product.rating)
-                                ? 'text-yellow-400 fill-current'
-                                : 'text-gray-300'
-                            }`}
-                          />
-                        ))}
-                      </div>
-                      <span className="text-sm text-gray-600">
-                        {product.rating} ({product.reviews})
-                      </span>
-                    </div>
-
-                    <div className="text-lg font-bold text-gray-900">
-                      {product.price}
-                    </div>
-                  </div>
-                </CardBody>
-
-                <CardFooter className="pt-0 px-4 pb-4 rounded-2xl">
-                  <Button
-                    className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-full"
-                    startContent={<ShoppingCart size={16} />}
-                  >
-                    Aggiungi al carrello
-                  </Button>
-                </CardFooter>
-              </Card>
-            </motion.div>
-          ))}
-        </motion.div>
-
-        {/* View All Button */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.3 }}
-          viewport={{ once: true }}
-          className="text-center mt-12"
-        >
-          <Button
-            size="lg"
-            variant="bordered"
-            className="border-purple-200 text-purple-700 hover:bg-purple-50 font-semibold px-8 py-6 rounded-full"
+        {loading ? (
+          <div className="text-center text-gray-600">Caricamento prodotti...</div>
+        ) : error ? (
+          <div className="text-center text-red-600 font-medium">{error}</div>
+        ) : products.length === 0 ? (
+          <div className="text-center text-gray-600">Nessun prodotto disponibile al momento.</div>
+        ) : (
+          <motion.div
+            variants={containerVariants}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
           >
-            Vedi tutti i prodotti
-          </Button>
-        </motion.div>
+            {products.map((product) => (
+              <motion.div
+                key={product.$id}
+                variants={itemVariants}
+                whileHover={{ y: -8 }}
+                transition={{ duration: 0.3, ease: [0.42, 0, 0.58, 1] }}
+              >
+                <Card className="h-full group cursor-pointer border border-gray-200 hover:border-purple-300 hover:shadow-xl transition-all duration-300 rounded-2xl">
+                  <CardBody className="p-4 rounded-2xl">
+                    <div className="flex items-center justify-center h-40 w-full mb-4 bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl overflow-hidden">
+                      {/* Product Image */}
+                      <img
+                        src={`/api/media/products/${product.uuid}`}
+                        alt={product.name}
+                        className="h-full w-full object-cover"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).onerror = null;
+                          (e.currentTarget as HTMLImageElement).src = '/window.svg';
+                          (e.currentTarget as HTMLImageElement).className = 'h-20 w-20 object-contain';
+                        }}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <h3 className="font-semibold text-gray-900 group-hover:text-purple-600 transition-colors duration-200 line-clamp-2">
+                        {product.name}
+                      </h3>
+                      {product.description ? (
+                        <p className="text-sm text-gray-600 line-clamp-2">{product.description}</p>
+                      ) : null}
+                      {product.colors && product.colors.length > 0 ? (
+                        <div className="flex items-center gap-2">
+                          {product.colors.slice(0, 6).map((c, idx) => (
+                            <span key={idx} className="w-4 h-4 rounded-full border" style={{ backgroundColor: c }} title={c} />
+                          ))}
+                          {product.colors.length > 6 ? (
+                            <span className="text-xs text-gray-500">+{product.colors.length - 6}</span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      <div className="flex items-center gap-2 text-sm text-gray-700">
+                        <div className="flex items-center">
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <Star key={i} size={14} className={i < 4 ? 'text-yellow-400 fill-current' : 'text-gray-300'} />
+                          ))}
+                        </div>
+                        <span>4.5/5</span>
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        Disponibilità: <span className={`font-semibold ${((product.stock ?? 0) < 10) ? 'text-red-600' : 'text-gray-900'}`}>{product.stock ?? 0}</span>
+                      </div>
+                      <div className="text-lg font-bold text-gray-900 flex items-baseline gap-1">
+                        <span>€</span>
+                        <span>{product.price}</span>
+                        <span className="text-xs text-gray-500">/EUR</span>
+                      </div>
+                    </div>
+                  </CardBody>
+
+                  <CardFooter className="pt-0 px-4 pb-4 rounded-2xl">
+                    {product.personalizable ? (
+                      <Link href="/#customize" className="w-full">
+                        <Button className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-full">
+                          Personalizza
+                        </Button>
+                      </Link>
+                    ) : (
+                      <Button className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-full" startContent={<ShoppingCart size={16} />}>
+                        Aggiungi al carrello
+                      </Button>
+                    )}
+                  </CardFooter>
+                </Card>
+              </motion.div>
+            ))}
+          </motion.div>
+        )}
       </div>
     </section>
   );

@@ -1,4 +1,6 @@
 import { Client, Account, Databases, ID, Query, Teams } from "appwrite";
+import { Storage } from "appwrite";
+import { OAuthProvider } from "appwrite";
 
 const client = new Client();
 
@@ -9,12 +11,13 @@ client
 export const account = new Account(client);
 export const databases = new Databases(client);
 export const teams = new Teams(client);
+export const storage = new Storage(client);
 
 export { ID, Query };
 
 export function appwriteOAuthGoogle() {
   account.createOAuth2Session(
-    "google",
+    OAuthProvider.Google,
     window.location.origin, // redirect dopo login
     window.location.origin // redirect dopo errore
   );

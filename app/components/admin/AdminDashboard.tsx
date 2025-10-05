@@ -15,9 +15,16 @@ import {
   Trash2,
   Plus
 } from 'lucide-react';
+import React from 'react';
+import { ResponsiveContainer, AreaChart, Area, Tooltip, XAxis, YAxis } from 'recharts';
 
 const AdminDashboard = () => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [usersTotal, setUsersTotal] = useState<number | null>(null);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [usersSeries, setUsersSeries] = useState<Array<{ date: string; count: number }>>([]);
+  const [usersGrowth, setUsersGrowth] = useState<number | null>(null);
 
   // Mock data for orders
   const orders = [
@@ -72,9 +79,9 @@ const AdminDashboard = () => {
       color: 'blue'
     },
     {
-      title: 'Clienti attivi',
-      value: '856',
-      change: '+8%',
+      title: 'Utenti registrati',
+      value: usersLoading ? '...' : (usersError ? '—' : String(usersTotal ?? 0)),
+      change: usersError || usersGrowth === null ? '' : `${usersGrowth >= 0 ? '+' : ''}${usersGrowth.toFixed(1)}%`,
       icon: Users,
       color: 'green'
     },
@@ -93,6 +100,74 @@ const AdminDashboard = () => {
       color: 'orange'
     }
   ];
+
+  // Fetch total users from server route
+  React.useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      setUsersLoading(true);
+      setUsersError(null);
+      try {
+        const res = await fetch('/api/admin/users-count', { cache: 'no-store' });
+        if (!res.ok) throw new Error('Failed');
+        const data = await res.json();
+        if (!cancelled) setUsersTotal(typeof data?.total === 'number' ? data.total : 0);
+      } catch {
+        if (!cancelled) setUsersError('Impossibile caricare');
+      } finally {
+        if (!cancelled) setUsersLoading(false);
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Fetch users time-series and growth
+  React.useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const res = await fetch('/api/admin/users-stats', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        setUsersSeries(Array.isArray(data?.series) ? data.series : []);
+        setUsersGrowth(typeof data?.growthPct === 'number' ? data.growthPct : 0);
+      } catch {}
+    };
+    run();
+    return () => { cancelled = true; };
+  }, []);
+
+  const UsersChart = ({ series }: { series: Array<{ date: string; count: number }> }) => {
+    if (!series.length) return <div className="h-16" />;
+    const data = series.map((s) => ({ date: s.date.slice(5), value: s.count }));
+    return (
+      <div className="mt-2">
+        <div className="h-16 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data} margin={{ left: 0, right: 0, top: 4, bottom: 0 }}>
+              <defs>
+                <linearGradient id="usersGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#16a34a" stopOpacity={0.25} />
+                  <stop offset="100%" stopColor="#16a34a" stopOpacity={0.05} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="date" hide />
+              <YAxis hide />
+              <Tooltip
+                cursor={{ stroke: '#94a3b8', strokeDasharray: '3 3' }}
+                formatter={(value: number) => [String(value), 'Registrazioni']}
+                labelFormatter={(label: string) => `Giorno: ${label}`}
+              />
+              <Area type="monotone" dataKey="value" stroke="#16a34a" fill="url(#usersGradient)" strokeWidth={2} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+        <p className="text-[11px] text-gray-500">Ultimi 30 giorni</p>
+      </div>
+    );
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -171,7 +246,13 @@ const AdminDashboard = () => {
                     <div>
                       <p className="text-sm font-medium text-gray-600">{stat.title}</p>
                       <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
-                      <p className="text-sm text-green-600">{stat.change}</p>
+                      {stat.title === 'Utenti registrati' ? (
+                        <p className={`text-sm ${Number(usersGrowth ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {stat.change}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-green-600">{stat.change}</p>
+                      )}
                     </div>
                     <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
                       stat.color === 'blue' ? 'bg-blue-100' :
@@ -187,6 +268,9 @@ const AdminDashboard = () => {
                       }`} />
                     </div>
                   </div>
+                  {stat.title === 'Utenti registrati' && (
+                    <UsersChart series={usersSeries} />
+                  )}
                 </CardBody>
               </Card>
             </motion.div>
