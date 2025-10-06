@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 export async function GET(
-  _req: NextRequest,
+  _req: Request,
   { params }: { params: { uuid: string } }
 ) {
   const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
