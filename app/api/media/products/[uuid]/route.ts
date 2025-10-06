@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-export async function GET(
-  _req: Request,
-  context: { params: { uuid: string } }
-) {
+export async function GET(_req: Request, context: any) {
   const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
   const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
   const bucketId = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_STORAGE;
@@ -17,13 +15,14 @@ export async function GET(
   }
   try {
     const base = endpoint.replace(/\/$/, "");
-    const url = `${base}/storage/buckets/${bucketId}/files/${context.params.uuid}/view`;
+    const uuid = String(context?.params?.uuid ?? context?.uuid ?? "");
+    const url = `${base}/storage/buckets/${bucketId}/files/${uuid}/view`;
     const headers: Record<string, string> = { "X-Appwrite-Project": projectId };
     if (apiKey) headers["X-Appwrite-Key"] = apiKey;
 
     const res = await fetch(url, { headers, cache: "no-store" });
     if (!res.ok) {
-      console.error("media proxy error", res.status, context.params.uuid);
+      console.error("media proxy error", res.status, uuid);
       return new NextResponse("Not found", { status: 404 });
     }
     const contentType = res.headers.get("content-type") || "image/png";
