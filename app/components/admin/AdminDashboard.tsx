@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Button, Card, CardBody, CardHeader, Table, TableHeader, TableColumn, TableBody, TableRow, TableCell, Chip, Input } from '@heroui/react';
+import { Button, Card, CardBody, CardHeader, Table, TableHeader, TableColumn, TableBody, TableRow, TableCell, Chip, Input, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@heroui/react';
 import { 
   Package, 
   Users, 
@@ -84,6 +84,14 @@ const AdminDashboard = () => {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+
+  // Shipping modal state
+  const [shipModalOpen, setShipModalOpen] = useState(false);
+  const [shipModalOrderId, setShipModalOrderId] = useState<string | null>(null);
+  const [shippingInfo, setShippingInfo] = useState<string>('DHL Tracking Number: ');
+  const [shipSaving, setShipSaving] = useState(false);
+  const [shipError, setShipError] = useState<string | null>(null);
+  const [shipEditOnly, setShipEditOnly] = useState<boolean>(false);
 
   const formatEuro = (cents: number) =>
     new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cents / 100);
@@ -192,6 +200,50 @@ const AdminDashboard = () => {
     setExpandedOrderId((prev) => (prev === id ? null : id));
   };
 
+  const openShipModal = async (orderId: string, editOnly: boolean) => {
+    setShipEditOnly(editOnly);
+    setShipModalOrderId(orderId);
+    setShipSaving(false);
+    setShipError(null);
+    setShippingInfo('DHL Tracking Number: ');
+    setShipModalOpen(true);
+    try {
+      const res = await fetch(`/api/admin/orders?order_uuid=${encodeURIComponent(orderId)}`, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        const current = data?.order?.spedition_info;
+        if (typeof current === 'string' && current.trim()) setShippingInfo(current);
+      }
+    } catch {}
+  };
+
+  const saveShippingInfo = async () => {
+    if (!shipModalOrderId) return;
+    const val = String(shippingInfo || '').trim();
+    if (!val) { setShipError('Il numero di tracking è obbligatorio'); return; }
+    setShipSaving(true);
+    setShipError(null);
+    try {
+      const body: any = { order_uuid: shipModalOrderId, spedition_info: val };
+      if (!shipEditOnly) body.status = 'spedito';
+      const res = await fetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        throw new Error(t || 'Errore salvataggio');
+      }
+      setOrders((prev) => prev.map((o) => o.id === shipModalOrderId ? { ...o, status: (!shipEditOnly ? 'spedito' as any : o.status) } : o));
+      setShipModalOpen(false);
+    } catch (e: any) {
+      setShipError(typeof e?.message === 'string' ? e.message : 'Errore imprevisto');
+    } finally {
+      setShipSaving(false);
+    }
+  };
+
   // Build table rows to satisfy strict typing (no null/false children)
   const renderedRows: any[] = React.useMemo(() => {
     const rows: any[] = [];
@@ -240,7 +292,12 @@ const AdminDashboard = () => {
               >
                 {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
               </button>
-              {order.id}
+              <span className="flex items-center gap-2">
+                {`ORD-${order.id}`}
+                {order.shipping?.trackingNumber ? (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 whitespace-nowrap">DHL Tracking Number - {order.shipping.trackingNumber}</span>
+                ) : null}
+              </span>
             </div>
           </TableCell>
           <TableCell>
@@ -272,7 +329,24 @@ const AdminDashboard = () => {
               >
                 <Eye size={16} />
               </Button>
-              <Button isIconOnly size="sm" variant="ghost" className="text-green-600 hover:bg-green-50">
+              <Button
+                isIconOnly
+                size="sm"
+                variant="ghost"
+                className="text-purple-600 hover:bg-purple-50"
+                onPress={() => openShipModal(order.id, false)}
+                aria-label="Segna come spedito"
+              >
+                <Truck size={16} />
+              </Button>
+              <Button
+                isIconOnly
+                size="sm"
+                variant="ghost"
+                className="text-green-600 hover:bg-green-50"
+                onPress={() => openShipModal(order.id, true)}
+                aria-label="Modifica info spedizione"
+              >
                 <Edit size={16} />
               </Button>
               <Button isIconOnly size="sm" variant="ghost" className="text-red-600 hover:bg-red-50">

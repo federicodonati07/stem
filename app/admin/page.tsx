@@ -49,6 +49,7 @@ type OrderDoc = {
   email?: string;
   customerEmail?: string;
   status?: string;
+  speditionInfo?: string;
   total?: number | string;
   currency?: string;
   items?: OrderItemDoc[] | unknown[];
@@ -157,12 +158,7 @@ export default function AdminDashboard() {
   // Admin order statuses and helpers
   const adminOrderStatuses = ['pagato', 'elaborazione', 'spedito', 'archiviato'] as const;
   type AdminOrderStatus = (typeof adminOrderStatuses)[number];
-  const nextAdminStatus = (s: string): AdminOrderStatus => {
-    const cur = String(s || '').toLowerCase();
-    const idx = adminOrderStatuses.indexOf(cur as AdminOrderStatus);
-    const nextIdx = idx >= 0 ? (idx + 1) % adminOrderStatuses.length : 0;
-    return adminOrderStatuses[nextIdx];
-  };
+  // nextAdminStatus removed (unused)
   const statusPillClass = (s: string) => {
     const st = String(s || '').toLowerCase();
     if (st === 'pagato') return 'bg-green-100 text-green-700';
@@ -172,24 +168,86 @@ export default function AdminDashboard() {
     return 'bg-gray-100 text-gray-700';
   };
 
+  // Shipping modal for tracking number when switching to 'spedito' or editing tracking
+  const [shipModalOpen, setShipModalOpen] = useState(false);
+  const [shipOrderId, setShipOrderId] = useState<string | null>(null);
+  const [shipDocId, setShipDocId] = useState<string | null>(null);
+  const [shipInfo, setShipInfo] = useState<string>('');
+  const [shipSaving, setShipSaving] = useState(false);
+  const [shipError, setShipError] = useState<string | null>(null);
+  const [shipEditOnly, setShipEditOnly] = useState<boolean>(false);
+
+  async function openShipModalFor(docId: string, orderId: string, editOnly = false) {
+    setShipDocId(docId);
+    setShipOrderId(orderId);
+    setShipEditOnly(editOnly);
+    setShipInfo('');
+    setShipError(null);
+    setShipSaving(false);
+    setShipModalOpen(true);
+    try {
+      const res = await fetch(`/api/admin/orders?appwriteId=${encodeURIComponent(docId)}`, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        const current = data?.order?.spedition_info as string | undefined;
+        if (typeof current === 'string' && current.trim()) {
+          const raw = current.trim();
+          const parsed = raw.includes(':') ? raw.split(':').slice(1).join(':').trim() : raw;
+          setShipInfo(parsed);
+        }
+      }
+    } catch {}
+  }
+
+  async function saveShipInfoAndMarkShipped() {
+    if (!shipDocId || !shipOrderId) return;
+    const val = String(shipInfo || '').trim();
+    if (!val) { setShipError('Inserire il numero di tracking'); return; }
+    setShipSaving(true);
+    setShipError(null);
+    try {
+      const res = await fetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appwriteId: shipDocId, order_uuid: shipOrderId, spedition_info: `DHL Tracking Number: ${val}`, ...(shipEditOnly ? {} : { status: 'spedito' }) })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await fetchOrders();
+      setShipModalOpen(false);
+    } catch (e) {
+      const msg = (e && typeof (e as { message?: unknown }).message === 'string') ? String((e as { message?: unknown }).message) : 'Errore imprevisto';
+      setShipError(msg);
+    } finally {
+      setShipSaving(false);
+    }
+  }
+
   async function updateOrderStatus(orderDocId: string, newStatus: AdminOrderStatus) {
     if (!dbId || !ordersCol || !orderDocId) return;
     setUpdatingStatus((m) => ({ ...m, [orderDocId]: true }));
     const prev = orders;
     // optimistic UI
     setOrders((list) => {
-      const nextList = (list as any[]).map((o) => (o.$id === orderDocId ? { ...o, status: newStatus } : o));
+      const nextList = Array.isArray(list)
+        ? list.map((o) =>
+            o && o.$id === orderDocId
+              ? { ...o, status: newStatus, ...(String(newStatus).toLowerCase() !== 'spedito' ? { speditionInfo: '' } : {}) }
+              : o
+          )
+        : [];
       // If a filter is active and the updated order no longer matches it, remove it immediately
       if (statusFilter && String(newStatus) !== statusFilter) {
-        return nextList.filter((o) => o.$id !== orderDocId) as any;
+        return nextList.filter((o) => o.$id !== orderDocId);
       }
-      return nextList as any;
+      return nextList;
     });
     try {
-      await databases.updateDocument(dbId, ordersCol, orderDocId, { status: newStatus });
+      const payload: Record<string, unknown> = { status: newStatus };
+      if (String(newStatus).toLowerCase() !== 'spedito') payload.spedition_info = null;
+      await databases.updateDocument(dbId, ordersCol, orderDocId, payload);
       // Re-fetch to ensure lists/metrics reflect filters and aggregates
       await fetchOrders();
-    } catch (e) {
+    } catch {
       // revert
       setOrders(prev);
     } finally {
@@ -240,7 +298,7 @@ export default function AdminDashboard() {
         return;
       }
       const res = await databases.listDocuments(dbId, userCol, [Query.equal('uuid', userUuid), Query.limit(1)]);
-      const doc = (res.documents || [])[0] as any;
+      const doc = (res.documents || [])[0] as Record<string, unknown>;
       if (!doc) {
         setUserModalError('Utente non trovato');
         return;
@@ -255,7 +313,7 @@ export default function AdminDashboard() {
         postal_code: String(doc.postal_code ?? ''),
       };
       setUserModalData(data);
-    } catch (e) {
+    } catch {
       setUserModalError('Impossibile caricare i dati utente');
     } finally {
       setUserModalLoading(false);
@@ -274,22 +332,22 @@ export default function AdminDashboard() {
   type AppwriteDocument = { $id: string; $createdAt?: string } & UnknownRecord;
   type DocumentList<T> = { total: number; documents: T[] };
 
-  const getFirstString = (o: UnknownRecord, keys: string[]): string => {
+  const getFirstString = useCallback((o: UnknownRecord, keys: string[]): string => {
     for (const k of keys) {
       const v = o[k];
       if (typeof v === 'string') return v;
     }
     return '';
-  };
-  const getFirstNumber = (o: UnknownRecord, keys: string[]): number | undefined => {
+  }, []);
+  const getFirstNumber = useCallback((o: UnknownRecord, keys: string[]): number | undefined => {
     for (const k of keys) {
       const v = o[k];
       if (typeof v === 'number') return v;
       if (typeof v === 'string' && v.trim() && !Number.isNaN(Number(v))) return Number(v);
     }
     return undefined;
-  };
-  const getFirstArray = (o: UnknownRecord, keys: string[]): UnknownRecord[] => {
+  }, []);
+  const getFirstArray = useCallback((o: UnknownRecord, keys: string[]): UnknownRecord[] => {
     for (const k of keys) {
       const v = o[k];
       if (Array.isArray(v)) return v as UnknownRecord[];
@@ -310,7 +368,7 @@ export default function AdminDashboard() {
       }
     }
     return [];
-  };
+  }, []);
 
   const mapOrderDoc = useCallback((d: UnknownRecord): OrderDoc => {
     const id = getFirstString(d, ['orderId', 'id', '$id']).slice(0, 50);
@@ -354,6 +412,7 @@ export default function AdminDashboard() {
       customerEmail: email,
       userUuid: getFirstString(d, ['user_uuid', 'userUuid', 'userId', 'uid']),
       status: getFirstString(d, ['status']).toLowerCase(),
+      speditionInfo: getFirstString(d, ['spedition_info', 'speditionInfo']),
       total: ((): number | string => {
         const num = getFirstNumber(d, ['total', 'amountTotal', 'amount', 'priceTotal']);
         if (typeof num === 'number') return num;
@@ -363,19 +422,18 @@ export default function AdminDashboard() {
       currency: getFirstString(d, ['currency']) || 'EUR',
       bill: billVal,
       items: normalizedItems.map((r: UnknownRecord) => {
-        return {
-          name: getFirstString(r, ['name', 'title', 'productName']),
-          sku: getFirstString(r, ['sku']) || undefined,
-          quantity: getFirstNumber(r, ['quantity', 'qty']) ?? 1,
-          unitPrice: getFirstNumber(r, ['unitPrice', 'unit_price', 'price', 'unit_amount', 'unitAmount']) ?? 0,
-          unit_price: getFirstNumber(r, ['unit_price', 'unitPrice', 'price']) ?? undefined,
-          uuid: getFirstString(r, ['uuid']) || undefined,
-          personalized: getFirstString(r, ['personalized']) || undefined,
-          color: getFirstString(r, ['color']) || undefined,
-        } as OrderItemDoc;
+        const name = getFirstString(r, ['name', 'title', 'productName']);
+        const sku = getFirstString(r, ['sku']) || undefined;
+        const quantity = getFirstNumber(r, ['quantity', 'qty']) ?? 1;
+        const unitPrice = getFirstNumber(r, ['unitPrice', 'unit_price', 'price', 'unit_amount', 'unitAmount']) ?? 0;
+        const unit_price = getFirstNumber(r, ['unit_price', 'unitPrice', 'price']) ?? undefined;
+        const uuid = getFirstString(r, ['uuid']) || undefined;
+        const personalized = getFirstString(r, ['personalized']) || undefined;
+        const color = getFirstString(r, ['color']) || undefined;
+        return { name, sku, quantity, unitPrice, unit_price, uuid, personalized, color } as OrderItemDoc;
       }),
     } as OrderDoc;
-  }, []);
+  }, [getFirstArray, getFirstNumber, getFirstString]);
 
   const fetchOrders = useCallback(async () => {
     setOrdersLoading(true);
@@ -396,15 +454,35 @@ export default function AdminDashboard() {
       if (dbId && productsCol && mapped.length > 0) {
         const uuids = new Set<string>();
         for (const o of mapped) {
-          for (const it of o.items || []) if (it.uuid) uuids.add(String(it.uuid));
+          for (const it of o.items || []) {
+            if (
+              typeof it === 'object' &&
+              it !== null &&
+              'uuid' in it &&
+              typeof (it as { uuid?: unknown }).uuid === 'string' &&
+              (it as { uuid: string }).uuid
+            ) {
+              uuids.add((it as { uuid: string }).uuid);
+            }
+          }
         }
         if (uuids.size > 0) {
           try {
             const resP = await databases.listDocuments(dbId, productsCol, [Query.equal('uuid', Array.from(uuids)), Query.limit(200)]);
-            const map: Record<string, any> = {};
-            for (const d of (resP as any).documents || []) map[String(d.uuid)] = d;
+            const productByUuid: Record<string, { name?: unknown }> = {};
+            const docs = (resP as { documents?: Array<{ uuid?: unknown; name?: unknown }> })?.documents ?? [];
+            for (const d of docs) {
+              const k = typeof d.uuid === 'string' ? d.uuid : '';
+              if (k) productByUuid[k] = { name: d.name };
+            }
             for (const o of mapped) {
-              o.items = (o.items || []).map((it) => ({ ...it, name: it.name || (it.uuid ? String(map[it.uuid]?.name || '') : it.name) }));
+              const itemsArr = Array.isArray(o.items) ? o.items : [];
+              o.items = itemsArr.map((raw) => {
+                const it = raw && typeof raw === 'object' ? (raw as OrderItemDoc) : ({} as OrderItemDoc);
+                const uuid = typeof it.uuid === 'string' ? it.uuid : '';
+                const enrichedName = uuid && typeof productByUuid[uuid]?.name === 'string' ? String(productByUuid[uuid]?.name) : '';
+                return { ...it, name: it.name || (uuid ? enrichedName : it.name) } as OrderItemDoc;
+              });
             }
             console.log('[admin/orders] enriched product names for uuids:', Array.from(uuids));
           } catch {}
@@ -444,8 +522,9 @@ export default function AdminDashboard() {
           if (toArchive.length) {
             await Promise.all(toArchive.map(async (o) => {
               try {
-                await databases.updateDocument(dbId, ordersCol, o.$id, { status: 'archiviato' });
+                await databases.updateDocument(dbId, ordersCol, o.$id, { status: 'archiviato', spedition_info: null });
                 o.status = 'archiviato';
+                o.speditionInfo = '' as unknown as string;
               } catch {}
             }));
           }
@@ -514,8 +593,8 @@ export default function AdminDashboard() {
 
       setOrdersTotalAll(totalOrders);
       setRevenueTotal(totalRevenue);
-      setOrdersSeries(dayKeys.map((k) => ({ date: k, value: dayOrderCount[k] })) as any);
-      setRevenueSeries(dayKeys.map((k) => ({ date: k, value: dayRevenue[k] })) as any);
+      setOrdersSeries(dayKeys.map((k) => ({ date: k, value: dayOrderCount[k] })));
+      setRevenueSeries(dayKeys.map((k) => ({ date: k, value: dayRevenue[k] })));
 
       const q = ordersSearch.trim().toLowerCase();
       let filtered = mapped;
@@ -533,7 +612,7 @@ export default function AdminDashboard() {
       }
       filtered.sort((a, b) => (a.$createdAt || '').localeCompare(b.$createdAt || ''));
       setOrders(filtered.reverse());
-    } catch (e) {
+    } catch {
       setOrdersError('Impossibile caricare gli ordini');
     } finally {
       setOrdersLoading(false);
@@ -561,7 +640,7 @@ export default function AdminDashboard() {
         colors: Array.isArray(d.colors as unknown[]) ? (d.colors as unknown[]).map((c) => String(c)) : [],
       }));
       setProducts(mapped);
-    } catch (e) {
+    } catch {
       setProductsError("Impossibile caricare i prodotti");
     } finally {
       setProductsLoading(false);
@@ -619,8 +698,8 @@ export default function AdminDashboard() {
         } catch (e) { console.error('refresh categories after add error', e); }
       }
       setPCategory(name);
-    } catch (e) {
-      console.error('addCategory error', e);
+    } catch (err) {
+      console.error('addCategory error', err);
       setCategoryMsg("Errore aggiunta categoria");
     }
   }
@@ -640,8 +719,8 @@ export default function AdminDashboard() {
       }
       if (pCategory === name) setPCategory("");
       setCategoryMsg("Categoria rimossa");
-    } catch (e) {
-      console.error("removeCategory error", e);
+    } catch (err) {
+      console.error("removeCategory error", err);
       setCategoryMsg("Errore rimozione categoria");
     }
   }
@@ -682,20 +761,10 @@ export default function AdminDashboard() {
 
   // Editing modal
   const [editing, setEditing] = useState<ProductDoc | null>(null);
-  const [eName, setEName] = useState("");
-  const [eCategory, setECategory] = useState("");
-  const [ePrice, setEPrice] = useState("");
-  const [eStock, setEStock] = useState(0);
-  const [eDescription, setEDescription] = useState("");
   const [updating, setUpdating] = useState(false);
 
   function openEdit(p: ProductDoc) {
     setEditing(p);
-    setEName(p.name);
-    setECategory(p.category);
-    setEPrice(p.price);
-    setEStock(p.stock);
-    setEDescription(p.description);
   }
 
   async function updateField(docId: string, data: Partial<ProductDoc>) {
@@ -879,6 +948,8 @@ export default function AdminDashboard() {
     );
   }
 
+// Render ShippingModal near the end of AdminDashboard component return
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -1051,13 +1122,13 @@ export default function AdminDashboard() {
                   {orders.map((o: OrderDoc) => {
                     const id = o.orderId || o.$id;
                     const items: OrderItemDoc[] = Array.isArray(o.items) ? (o.items as OrderItemDoc[]) : [];
-                    const preview = items[0]?.name || '-';
-                    const more = Math.max((items.length || 0) - 1, 0);
+                    // const preview = items[0]?.name || '-';
+                    // const more = Math.max((items.length || 0) - 1, 0);
                     // compute total from items if total field missing or empty
                     let computedTotal = 0;
                     for (const it of items) {
                       const qty = Number(it.quantity ?? 1);
-                      const unit = Number(it.unitPrice ?? (it as any).unit_price ?? it.price ?? 0);
+                      const unit = Number(it.unitPrice ?? (it as unknown as { unit_price?: number }).unit_price ?? it.price ?? 0);
                       computedTotal += qty * unit;
                     }
                     const expanded = expandedOrderId === id;
@@ -1071,7 +1142,17 @@ export default function AdminDashboard() {
                             <span className="text-gray-500">{expanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}</span>
                             <div>
                               <p className="font-semibold text-gray-900 flex items-center gap-2 flex-wrap">
-                                <span>{id}</span>
+                                <span><span className="text-gray-500">ORD-</span>{id}</span>
+                                {typeof o.speditionInfo === 'string' && o.speditionInfo.trim() ? (
+                                  <button
+                                    type="button"
+                                    className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100"
+                                    title="Modifica tracking"
+                                    onClick={(e) => { e.stopPropagation(); openShipModalFor(o.$id, id, true); }}
+                                  >
+                                    {o.speditionInfo}
+                                  </button>
+                                ) : null}
                                 {o.customerEmail ? (
                                   <button
                                     type="button"
@@ -1109,7 +1190,11 @@ export default function AdminDashboard() {
                                       className={`w-full text-left px-3 py-2 text-sm ${s === status ? 'bg-gray-50 font-semibold' : 'hover:bg-gray-50'} text-gray-800`}
                                       onClick={async () => {
                                         setStatusMenuFor(null);
-                                        await updateOrderStatus(o.$id, s);
+                                        if (s === 'spedito') {
+                                          await openShipModalFor(o.$id, o.orderId || o.$id, false);
+                                        } else {
+                                          await updateOrderStatus(o.$id, s);
+                                        }
                                       }}
                                     >
                                       {s}
@@ -1135,7 +1220,8 @@ export default function AdminDashboard() {
                                   return (
                                     <div key={idx} className="py-3 flex items-center justify-between">
                                       <div className="flex items-center gap-3">
-                                        <img src={imgSrc || `/api/media/products/${it.uuid}`} alt={it.uuid || 'item'} className="w-12 h-12 rounded-lg object-cover border" onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = '/window.svg'; }} />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={imgSrc || `/api/media/products/${it.uuid}`} alt={it.uuid || 'item'} className="w-12 h-12 rounded-lg object-cover border" onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = '/window.svg'; }} />
                                         <div className="text-sm text-gray-700">
                                           <div className="font-medium text-gray-900">{it.name || `Prodotto ${it.uuid}`}</div>
                                           <div className="flex items-center gap-2 flex-wrap">
@@ -1202,6 +1288,7 @@ export default function AdminDashboard() {
                         <tr key={product.$id} className="border-b border-gray-100 cursor-pointer hover:bg-gray-50" onClick={() => openEdit(product)}>
                           <td className="py-3 px-4 font-medium text-gray-900">
                             <div className="flex items-center gap-3">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img key={`${product.uuid}-${imgVersionMap[product.uuid] || 0}`} src={`/api/media/products/${product.uuid}`} alt={product.name} className="w-9 h-9 rounded-lg object-cover border" onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = '/window.svg'; }} />
                               <span>{product.name}</span>
                             </div>
@@ -1453,6 +1540,7 @@ export default function AdminDashboard() {
                       <p className="text-xs text-gray-500 mt-1">Formato ammesso: PNG. Max 50MB.</p>
                       {pPreview && (
                         <div className="mt-3">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={pPreview} alt="Preview" className="h-28 w-28 object-cover rounded-xl border" />
                         </div>
                       )}
@@ -1600,7 +1688,6 @@ export default function AdminDashboard() {
       {editing && (
         <EditProductModal
           p={editing}
-          imageVersion={imgVersionMap[editing.uuid] || 0}
           busy={updating}
           onClose={() => setEditing(null)}
           onUpdate={async (data) => {
@@ -1738,6 +1825,7 @@ export default function AdminDashboard() {
                 {!persModal ? null : (
                   persModal.type === 'image' ? (
                     <div className="space-y-4">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={persModal.value} alt="personalized" className="w-full max-h-96 object-contain rounded-xl border border-gray-300" />
                       <div className="flex justify-end">
                         <a href={persModal.value} download className="inline-flex items-center gap-2 h-10 px-4 rounded-full bg-gray-900 text-white hover:bg-gray-800 font-semibold">
@@ -1764,11 +1852,21 @@ export default function AdminDashboard() {
           )}
         </ModalContent>
       </Modal>
+      <ShippingModal
+        open={shipModalOpen}
+        info={shipInfo}
+        setInfo={setShipInfo}
+        saving={shipSaving}
+        error={shipError}
+        onClose={() => setShipModalOpen(false)}
+        onSave={saveShipInfoAndMarkShipped}
+        inputClassName={searchInputBase}
+      />
     </div>
   );
 }
 
-function EditProductModal({ p, imageVersion, onClose, onUpdate, onUpdateImage, onDelete, busy }: { p: ProductDoc; imageVersion: number; onClose: () => void; onUpdate: (data: Partial<ProductDoc>) => Promise<void>; onUpdateImage: (file: File, onProgress?: (n: number) => void) => Promise<void>; onDelete: () => Promise<void>; busy: boolean }) {
+function EditProductModal({ p, onClose, onUpdate, onUpdateImage, onDelete, busy }: { p: ProductDoc; onClose: () => void; onUpdate: (data: Partial<ProductDoc>) => Promise<void>; onUpdateImage: (file: File, onProgress?: (n: number) => void) => Promise<void>; onDelete: () => Promise<void>; busy: boolean }) {
   const [name, setName] = useState(p?.name || "");
   const [category, setCategory] = useState(p?.category || "");
   const [price, setPrice] = useState(p?.price || "");
@@ -1820,6 +1918,7 @@ function EditProductModal({ p, imageVersion, onClose, onUpdate, onUpdateImage, o
             <ModalBody>
               <div className="space-y-5">
                 <div className="flex items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={p?.img_url} alt={p?.name} className="w-16 h-16 rounded-lg object-cover border" onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = '/window.svg'; }} />
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Aggiorna immagine (PNG, max 50MB)</label>
@@ -1830,6 +1929,7 @@ function EditProductModal({ p, imageVersion, onClose, onUpdate, onUpdateImage, o
                       setImgPreview(url);
                       if (f && url) setCropOpen(true);
                     }} />
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     {imgPreview ? <img src={imgPreview} alt="preview" className="mt-2 w-20 h-20 object-cover rounded border" /> : null}
                   </div>
                   <Button size="sm" isDisabled={busy || !imgFile} onClick={async () => {
@@ -2011,6 +2111,57 @@ function EditProductModal({ p, imageVersion, onClose, onUpdate, onUpdateImage, o
                 )}
               </ModalContent>
             </Modal>
+          </>
+        )}
+      </ModalContent>
+    </Modal>
+  );
+}
+
+// Shipping modal component injected near root return (uses same Modal import)
+function ShippingModal({
+  open,
+  info,
+  setInfo,
+  saving,
+  error,
+  onClose,
+  onSave,
+  inputClassName,
+}: {
+  open: boolean;
+  info: string;
+  setInfo: (v: string) => void;
+  saving: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSave: () => void;
+  inputClassName?: string;
+}) {
+  return (
+    <Modal isOpen={open} onOpenChange={(o) => { if (!o) onClose(); }} backdrop="opaque" placement="center">
+      <ModalContent className="bg-white shadow-2xl border border-gray-200 rounded-2xl">
+        {() => (
+          <>
+            <ModalHeader className="flex items-center justify-between gap-2">
+              <h3 className="text-lg sm:text-xl font-bold text-gray-900">Imposta spedizione</h3>
+              <span className="w-8" />
+            </ModalHeader>
+            <ModalBody>
+              <label className="block text-sm font-medium text-gray-700 mb-2">DHL Tracking Number</label>
+              <input
+                type="text"
+                placeholder="Inserisci solo il numero DHL"
+                value={info}
+                onChange={(e) => setInfo(e.target.value)}
+                className={inputClassName || "w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 placeholder:text-gray-500 font-semibold outline-none"}
+              />
+              {error ? <p className="text-sm text-red-600 mt-1">{error}</p> : null}
+            </ModalBody>
+            <ModalFooter>
+              <Button className="rounded-full" variant="bordered" onClick={onClose} isDisabled={saving}>Annulla</Button>
+              <Button className="rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white" onClick={onSave} isLoading={saving}>Salva e segna come spedito</Button>
+            </ModalFooter>
           </>
         )}
       </ModalContent>

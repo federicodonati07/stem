@@ -430,7 +430,202 @@ function searchOrders(orders: Order[], query: string): Order[] {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
+  const orderUuid = searchParams.get("order_uuid");
+  const appwriteId = searchParams.get("appwriteId");
+
+  // If a specific order is requested (to read current spedition_info), fetch from Appwrite
+  if (orderUuid || appwriteId) {
+    try {
+      const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
+      const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
+      const apiKey =
+        process.env.NEXT_APPWRITE_API_KEY ||
+        process.env.APPWRITE_API_KEY ||
+        process.env.NEXT_PUBLIC_APPWRITE_API_KEY;
+      const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB;
+      const ordersCol = process.env.NEXT_PUBLIC_APPWRITE_ORDERS_DB;
+      if (!endpoint || !projectId || !apiKey || !dbId || !ordersCol) {
+        return NextResponse.json(
+          { error: "Missing Appwrite configuration" },
+          { status: 500 }
+        );
+      }
+      const base = endpoint.replace(/\/$/, "");
+      let doc: any = null;
+      if (appwriteId) {
+        const res = await fetch(
+          `${base}/databases/${dbId}/collections/${ordersCol}/documents/${encodeURIComponent(
+            appwriteId
+          )}`,
+          {
+            method: "GET",
+            headers: {
+              "X-Appwrite-Project": projectId,
+              "X-Appwrite-Key": apiKey,
+            },
+            cache: "no-store",
+          }
+        );
+        if (res.ok) doc = await res.json();
+      } else if (orderUuid) {
+        const listUrl = new URL(
+          `${base}/databases/${dbId}/collections/${ordersCol}/documents`
+        );
+        listUrl.searchParams.append(
+          "queries[]",
+          `equal("order_uuid", "${orderUuid}")`
+        );
+        listUrl.searchParams.set("limit", "1");
+        const res = await fetch(listUrl.toString(), {
+          method: "GET",
+          headers: {
+            "X-Appwrite-Project": projectId,
+            "X-Appwrite-Key": apiKey,
+          },
+          cache: "no-store",
+        });
+        if (res.ok) {
+          const data = await res.json();
+          doc = Array.isArray(data?.documents) ? data.documents[0] : null;
+        }
+      }
+      if (!doc) return NextResponse.json({ order: null });
+      return NextResponse.json({
+        order: {
+          id: String(doc.order_uuid || doc.$id),
+          status: String(doc.status || ""),
+          spedition_info:
+            typeof doc.spedition_info === "string" ? doc.spedition_info : "",
+        },
+      });
+    } catch (e) {
+      return NextResponse.json(
+        { error: "Failed to fetch order" },
+        { status: 500 }
+      );
+    }
+  }
+
+  // Default: demo list
   const q = searchParams.get("q") || "";
   const filtered = searchOrders(mockOrders, q);
   return NextResponse.json({ orders: filtered });
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const orderUuid: string = String(body?.order_uuid || "").trim();
+    const appwriteId: string = String(body?.appwriteId || "").trim();
+    const status: string | undefined =
+      typeof body?.status === "string" ? String(body.status).trim() : undefined;
+    const speditionInfoRaw = body?.spedition_info;
+    const speditionInfo: string | undefined =
+      typeof speditionInfoRaw === "string"
+        ? String(speditionInfoRaw).trim()
+        : undefined;
+
+    if (!orderUuid && !appwriteId) {
+      return NextResponse.json(
+        { error: "order_uuid or appwriteId is required" },
+        { status: 400 }
+      );
+    }
+    if (status && status.toLowerCase() === "spedito" && !speditionInfo) {
+      return NextResponse.json(
+        { error: "spedition_info required when setting status to 'spedito'" },
+        { status: 400 }
+      );
+    }
+
+    const updates: Record<string, any> = {};
+    if (typeof speditionInfo === "string")
+      updates.spedition_info = speditionInfo;
+    if (typeof status === "string") updates.status = status;
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json(
+        { error: "No fields to update" },
+        { status: 400 }
+      );
+    }
+
+    const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
+    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
+    const apiKey =
+      process.env.NEXT_APPWRITE_API_KEY ||
+      process.env.APPWRITE_API_KEY ||
+      process.env.NEXT_PUBLIC_APPWRITE_API_KEY;
+    const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB;
+    const ordersCol = process.env.NEXT_PUBLIC_APPWRITE_ORDERS_DB;
+    if (!endpoint || !projectId || !apiKey || !dbId || !ordersCol) {
+      return NextResponse.json(
+        { error: "Missing Appwrite configuration" },
+        { status: 500 }
+      );
+    }
+    const base = endpoint.replace(/\/$/, "");
+
+    // Resolve document id
+    let docId = appwriteId;
+    if (!docId) {
+      const listUrl = new URL(
+        `${base}/databases/${dbId}/collections/${ordersCol}/documents`
+      );
+      listUrl.searchParams.append(
+        "queries[]",
+        `equal("order_uuid", "${orderUuid}")`
+      );
+      listUrl.searchParams.set("limit", "1");
+      const listRes = await fetch(listUrl.toString(), {
+        method: "GET",
+        headers: {
+          "X-Appwrite-Project": projectId,
+          "X-Appwrite-Key": apiKey,
+        },
+        cache: "no-store",
+      });
+      if (!listRes.ok) {
+        const txt = await listRes.text().catch(() => "");
+        return NextResponse.json(
+          { error: "Order not found", details: txt },
+          { status: 404 }
+        );
+      }
+      const data = await listRes.json();
+      const doc = Array.isArray(data?.documents) ? data.documents[0] : null;
+      if (!doc?.$id) {
+        return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      }
+      docId = String(doc.$id);
+    }
+
+    // Patch document
+    const patchRes = await fetch(
+      `${base}/databases/${dbId}/collections/${ordersCol}/documents/${encodeURIComponent(
+        docId
+      )}`,
+      {
+        method: "PATCH",
+        headers: {
+          "X-Appwrite-Project": projectId,
+          "X-Appwrite-Key": apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ data: updates }),
+      }
+    );
+    if (!patchRes.ok) {
+      const txt = await patchRes.text().catch(() => "");
+      return NextResponse.json(
+        { error: "Failed to update order", details: txt },
+        { status: 500 }
+      );
+    }
+    const updated = await patchRes.json();
+    return NextResponse.json({ ok: true, id: docId, order: updated });
+  } catch (e: any) {
+    const message =
+      typeof e?.message === "string" ? e.message : "Unexpected error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

@@ -24,6 +24,7 @@ export default function OrdersPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [productsMap, setProductsMap] = React.useState<Record<string, any>>({});
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
+  const [copied, setCopied] = React.useState<Record<string, boolean>>({});
 
   const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB as string | undefined;
   const ordersCol = process.env.NEXT_PUBLIC_APPWRITE_ORDERS_DB as string | undefined;
@@ -133,7 +134,55 @@ export default function OrdersPage() {
                 <div key={o.$id} className={`bg-white rounded-2xl border ${isOpen ? 'border-purple-300' : 'border-gray-200'} shadow-sm transition-colors`}>
                   <button className="w-full p-5 flex items-center justify-between cursor-pointer hover:bg-gray-50" onClick={() => setOpen((m) => ({ ...m, [o.$id]: !m[o.$id] }))}>
                     <div>
-                      <div className="text-sm text-gray-600">Ordine <span className="font-semibold text-gray-900">{o.order_uuid || o.$id}</span></div>
+                      <div className="text-sm text-gray-600">Ordine <span className="font-semibold text-gray-900">{o.order_uuid || o.$id}</span>
+                        {String(o.status || '').toLowerCase()==='spedito' && o.spedition_info ? (
+                          <span className="ml-2 inline-flex items-center align-middle text-xs font-medium text-blue-700">
+                            <span>DHL Tracking Number</span>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              aria-label="Copia numero tracking DHL"
+                              className={`ml-1 inline-flex items-center px-2 py-0.5 rounded-full ${copied[o.$id] ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'} cursor-pointer select-none`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                const raw = String(o.spedition_info);
+                                const val = raw.includes(':') ? raw.split(':').slice(1).join(':').trim() : raw;
+                                navigator.clipboard?.writeText(val).then(() => {
+                                  setCopied((m) => ({ ...m, [o.$id]: true }));
+                                  setTimeout(() => {
+                                    setCopied((m) => ({ ...m, [o.$id]: false }));
+                                  }, 1200);
+                                }).catch(() => {});
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  const raw = String(o.spedition_info);
+                                  const val = raw.includes(':') ? raw.split(':').slice(1).join(':').trim() : raw;
+                                  navigator.clipboard?.writeText(val).then(() => {
+                                    setCopied((m) => ({ ...m, [o.$id]: true }));
+                                    setTimeout(() => {
+                                      setCopied((m) => ({ ...m, [o.$id]: false }));
+                                    }, 1200);
+                                  }).catch(() => {});
+                                }
+                              }}
+                            >
+                              {(() => {
+                                if (copied[o.$id]) return 'Copiato!';
+                                const raw = String(o.spedition_info);
+                                const val = raw.includes(':') ? raw.split(':').slice(1).join(':').trim() : raw;
+                                return val;
+                              })()}
+                            </span>
+                          </span>
+                        ) : (String(o.status || '').toLowerCase()!=='spedito' ? (
+                          <span className="ml-2 inline-flex items-center align-middle px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700 text-[11px] font-medium">
+                            Appena spedito potrai trackarlo con il numero DHL
+                          </span>
+                        ) : null)}
+                      </div>
                       <div className="mt-2">
                         <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                           <div className="h-full bg-gradient-to-r from-purple-600 to-blue-600" style={{ width: `${percent}%` }} />

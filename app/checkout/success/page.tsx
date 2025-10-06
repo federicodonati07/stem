@@ -101,6 +101,12 @@ export default function CheckoutSuccessPage() {
         const remaining = parsed.filter((it: any) => !(it && it.purchased === true));
         await databases.updateDocument(dbId, cartsCol, cart.$id, { products: remaining.map((it: any) => JSON.stringify(it)) });
 
+        // 6) Invia email al cliente e all'admin
+        try {
+          const emailItems = Array.from(groupMap.values()).map((it: any) => ({ uuid: it.uuid, quantity: it.quantity, unit_price: it.unit_price, color: it.color, personalized: it.personalized }));
+          await fetch('/api/orders/send-emails', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order_uuid: orderId, user_uuid: user.$id, items: emailItems, total: orderTotal }) });
+        } catch {}
+
         setOk(true);
       } catch (e) {
         setErr('Errore finalizzazione ordine');
