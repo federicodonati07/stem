@@ -5,6 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAccount } from "../../components/AccountContext";
 import { databases, Query, ID } from "../../components/auth/appwriteClient";
 
+type CartDoc = { $id: string; products?: unknown[] };
+type PurchasedItem = { uuid: string; personalized?: string; color?: string; quantity?: number; purchased?: boolean };
+type Consolidated = { uuid: string; personalized?: string; color?: string; quantity: number; purchased: true; unit_price: string };
+type EmailItem = { uuid: string; quantity: number; unit_price: string | number; color?: string; personalized?: string };
+
 export default function CheckoutSuccessPage() {
   const router = useRouter();
   const params = useSearchParams();
@@ -39,33 +44,35 @@ export default function CheckoutSuccessPage() {
         // 1) Recupera carrello dell'utente
         const res = await databases.listDocuments(dbId, cartsCol, [Query.equal('user_uuid', user.$id), Query.limit(1)]);
         if (res.total === 0) { setErr('Carrello non trovato'); return; }
-        const cart: any = res.documents[0];
-        const items = Array.isArray(cart.products) ? cart.products : [];
-        const parsed = items.map((s: any) => {
-          try { return typeof s === 'string' ? JSON.parse(s) : s; } catch { return null; }
-        }).filter(Boolean);
+        const cart = res.documents[0] as CartDoc;
+        const itemsRaw = Array.isArray(cart.products) ? cart.products : [];
+        const parsed = itemsRaw.map((s: unknown) => {
+          try { return typeof s === 'string' ? JSON.parse(s as string) : s; } catch { return null; }
+        }).filter(Boolean) as PurchasedItem[];
 
         // 2) Seleziona solo quelli marcati purchased === true
-        const purchasedItems = parsed.filter((it: any) => it && it.purchased === true);
+        const purchasedItems = parsed.filter((it) => it && it.purchased === true) as PurchasedItem[];
         if (purchasedItems.length === 0) { setErr('Nessun prodotto selezionato per acquisto'); return; }
 
         // 2b) Recupera prezzo corrente dei prodotti per salvarlo come prezzo di acquisto
-        let priceMap: Record<string, number> = {};
+        const priceMap: Record<string, number> = {};
         try {
           if (productsCol) {
-            const uuids = Array.from(new Set(purchasedItems.map((it: any) => String(it.uuid))));
+            const uuids = Array.from(new Set(purchasedItems.map((it) => String(it.uuid))));
             if (uuids.length) {
               const pr = await databases.listDocuments(dbId, productsCol, [Query.equal('uuid', uuids), Query.limit(200)]);
-              for (const d of pr.documents as any[]) {
-                const n = parseFloat(String(d.price ?? '').replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
-                priceMap[String(d.uuid)] = n;
+              const docs = (pr.documents as unknown[]) as Array<Record<string, unknown>>;
+              for (const d of docs) {
+                const priceVal = (typeof d.price === 'number' || typeof d.price === 'string') ? d.price : '';
+                const n = parseFloat(String(priceVal).replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
+                priceMap[String(d.uuid as string)] = n;
               }
             }
           }
         } catch {}
 
         // 3) Raggruppa per uuid + personalized + color includendo unit_price
-        const groupMap = new Map<string, any>();
+        const groupMap = new Map<string, Consolidated>();
         for (const it of purchasedItems) {
           const key = `${it.uuid}|${it.personalized || ''}|${it.color || ''}`;
           const cur = groupMap.get(key);
@@ -73,7 +80,7 @@ export default function CheckoutSuccessPage() {
           if (cur) {
             cur.quantity = (cur.quantity || 0) + (Number(it.quantity) || 0);
           } else {
-            groupMap.set(key, { uuid: it.uuid, personalized: it.personalized, color: it.color, quantity: Number(it.quantity) || 0, purchased: true, unit_price: unitPrice.toFixed(2) });
+            groupMap.set(key, { uuid: String(it.uuid), personalized: it.personalized, color: it.color, quantity: Number(it.quantity) || 0, purchased: true, unit_price: unitPrice.toFixed(2) });
           }
         }
         const consolidated = Array.from(groupMap.values()).map((it) => JSON.stringify(it));
@@ -98,17 +105,17 @@ export default function CheckoutSuccessPage() {
         // (rimosso) gestione stock su checkout
 
         // 5) Aggiorna carrello: rimuovi gli item acquistati
-        const remaining = parsed.filter((it: any) => !(it && it.purchased === true));
-        await databases.updateDocument(dbId, cartsCol, cart.$id, { products: remaining.map((it: any) => JSON.stringify(it)) });
+        const remaining = parsed.filter((it) => !(it && (it as PurchasedItem).purchased === true)) as PurchasedItem[];
+        await databases.updateDocument(dbId, cartsCol, cart.$id, { products: remaining.map((it) => JSON.stringify(it)) });
 
         // 6) Invia email al cliente e all'admin
         try {
-          const emailItems = Array.from(groupMap.values()).map((it: any) => ({ uuid: it.uuid, quantity: it.quantity, unit_price: it.unit_price, color: it.color, personalized: it.personalized }));
+          const emailItems: EmailItem[] = Array.from(groupMap.values()).map((it) => ({ uuid: it.uuid, quantity: it.quantity, unit_price: it.unit_price, color: it.color, personalized: it.personalized }));
           await fetch('/api/orders/send-emails', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order_uuid: orderId, user_uuid: user.$id, items: emailItems, total: orderTotal }) });
         } catch {}
 
         setOk(true);
-      } catch (e) {
+      } catch {
         setErr('Errore finalizzazione ordine');
       }
     })();
@@ -120,7 +127,7 @@ export default function CheckoutSuccessPage() {
         {ok ? (
           <>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Pagamento completato</h1>
-            <p className="text-gray-700 mb-6">Grazie per l'ordine! A breve riceverai una conferma via email.</p>
+            <p className="text-gray-700 mb-6">Grazie per l&apos;ordine! A breve riceverai una conferma via email.</p>
             <button className="h-11 px-6 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold" onClick={() => router.push('/orders')}>
               Vai ai miei ordini
             </button>

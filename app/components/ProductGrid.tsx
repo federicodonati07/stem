@@ -1,12 +1,12 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
-import { motion } from 'framer-motion';
+import { motion, type Variants } from 'framer-motion';
 import { Button, Card, CardBody, CardFooter } from '@heroui/react';
-import { ShoppingCart, Star } from 'lucide-react';
+import { Star } from 'lucide-react';
 import React from 'react';
 import { databases, Query } from './auth/appwriteClient';
 import Link from 'next/link';
-import { useCart } from './CartContext';
 
 type Product = {
   $id: string;
@@ -24,7 +24,7 @@ const ProductGrid = () => {
   const [products, setProducts] = React.useState<Product[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const { addToCart } = useCart();
+  // cart actions not needed here (CTA uses link)
 
   React.useEffect(() => {
     const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB as string | undefined;
@@ -42,17 +42,19 @@ const ProductGrid = () => {
           Query.equal('status', true),
           Query.limit(100),
         ]);
-        const list = (res.documents || []) as any[];
-        const mapped: Product[] = list.map((d) => ({
-          $id: d.$id,
+        const docs = (res.documents || []) as Array<Record<string, unknown>>;
+        const mapped: Product[] = docs.map((d) => ({
+          $id: String(d.$id ?? ''),
           name: String(d.name ?? ''),
           price: String(d.price ?? ''),
           uuid: String(d.uuid ?? ''),
-          img_url: typeof d.img_url === 'string' ? d.img_url.split('?')[0] : undefined,
-          personalizable: !!d.personalizable,
-          description: String(d.description ?? ''),
-          stock: Number(d.stock ?? 0),
-          colors: Array.isArray(d.colors) ? d.colors.map((c: any) => String(c)) : [],
+          img_url: typeof d.img_url === 'string' ? (d.img_url as string).split('?')[0] : undefined,
+          personalizable: Boolean(d.personalizable),
+          description: typeof d.description === 'string' ? d.description : '',
+          stock: Number((d as { stock?: unknown }).stock ?? 0),
+          colors: Array.isArray((d as { colors?: unknown }).colors)
+            ? ((d as { colors?: unknown[] }).colors || []).map((c: unknown) => String(c))
+            : [],
         }));
         setProducts(mapped);
       } catch {
@@ -73,14 +75,14 @@ const ProductGrid = () => {
     }
   };
 
-  const itemVariants = {
+  const itemVariants: Variants = {
     hidden: { opacity: 0, y: 20 },
     visible: {
       opacity: 1,
       y: 0,
       transition: {
         duration: 0.6,
-        ease: 'easeOut'
+        ease: [0.42, 0, 1, 1]
       }
     }
   };

@@ -59,9 +59,11 @@ export async function POST(req: NextRequest) {
       } catch {}
     }
     return NextResponse.json({ ok: true, updated, processed: uuids.length });
-  } catch (e: any) {
+  } catch (e) {
     const message =
-      typeof e?.message === "string" ? e.message : "Unexpected error";
+      typeof (e as { message?: unknown })?.message === "string"
+        ? (e as { message: string }).message
+        : "Unexpected error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

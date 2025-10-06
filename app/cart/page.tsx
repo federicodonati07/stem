@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import React from "react";
 import { useCart } from "../components/CartContext";
@@ -9,48 +10,74 @@ import { ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAccount } from "../components/AccountContext";
 
+type ProductDoc = {
+  uuid: string;
+  name?: string;
+  price: string | number;
+  stock?: number;
+};
+
+type CartLineItem = {
+  uuid: string;
+  quantity?: number;
+  purchased?: boolean;
+  color?: string;
+  personalized?: string;
+};
+
 export default function CartPage() {
   const { cartItems, cartCount, updateQuantity, removeItem, clearCart, setPurchased } = useCart();
   const router = useRouter();
   const { user, userInfo, loading: accountLoading } = useAccount();
 
   // Build product details map (cart)
-  const [products, setProducts] = React.useState<Record<string, any>>({});
-  const [loading, setLoading] = React.useState(false);
+  const [products, setProducts] = React.useState<Record<string, ProductDoc>>({});
   React.useEffect(() => {
     const uuids = Array.from(new Set(cartItems.map(i => i.uuid)));
     const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB as string | undefined;
     const productsCol = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_DB as string | undefined;
     if (!dbId || !productsCol || uuids.length === 0) { setProducts({}); return; }
     (async () => {
-      setLoading(true);
       try {
         const res = await databases.listDocuments(dbId, productsCol, [Query.equal("uuid", uuids), Query.limit(100)]);
-        const map: Record<string, any> = {};
-        for (const d of res.documents as any[]) map[String(d.uuid)] = d;
+        const map: Record<string, ProductDoc> = {};
+        const docs = (res.documents as unknown[]) as Array<Record<string, unknown>>;
+        for (const d of docs) {
+          const uuid = typeof d.uuid === 'string' ? d.uuid : '';
+          if (!uuid) continue;
+          const name = typeof d.name === 'string' ? d.name : undefined;
+          const price = (typeof d.price === 'string' || typeof d.price === 'number') ? (d.price as string | number) : '0';
+          const stock = typeof d.stock === 'number' ? d.stock : Number(d.stock ?? 0);
+          map[uuid] = { uuid, name, price, stock };
+        }
         setProducts(map);
       } catch {
         setProducts({});
-      } finally {
-        setLoading(false);
       }
     })();
   }, [cartItems]);
 
   // Group identical items by uuid+color+personalized (cart)
   const grouped = React.useMemo(() => {
-    const map = new Map<string, { key: string; sample: any; quantity: number; purchased: boolean }>();
-    for (const i of cartItems) {
+    const acc = new Map<string, { key: string; sample: CartLineItem; quantity: number; purchased: boolean }>();
+    for (const iRaw of cartItems as unknown as CartLineItem[]) {
+      const i: CartLineItem = {
+        uuid: String(iRaw.uuid),
+        quantity: Number(iRaw.quantity || 0),
+        purchased: !!iRaw.purchased,
+        color: typeof iRaw.color === 'string' ? iRaw.color : undefined,
+        personalized: typeof iRaw.personalized === 'string' ? iRaw.personalized : undefined,
+      };
       const key = `${i.uuid}|${i.color || ''}|${i.personalized || ''}`;
-      const cur = map.get(key);
+      const cur = acc.get(key);
       if (cur) {
         cur.quantity += i.quantity || 0;
         cur.purchased = cur.purchased && !!i.purchased;
       } else {
-        map.set(key, { key, sample: i, quantity: i.quantity || 0, purchased: !!i.purchased });
+        acc.set(key, { key, sample: i, quantity: i.quantity || 0, purchased: !!i.purchased });
       }
     }
-    return Array.from(map.values());
+    return Array.from(acc.values());
   }, [cartItems]);
 
   const subtotal = React.useMemo(() => {
@@ -88,8 +115,8 @@ export default function CartPage() {
   }
 
   // Recent purchases section
-  const [recent, setRecent] = React.useState<Array<{ key: string; sample: any; quantity: number }>>([]);
-  const [recentProducts, setRecentProducts] = React.useState<Record<string, any>>({});
+  const [recent, setRecent] = React.useState<Array<{ key: string; sample: CartLineItem; quantity: number }>>([]);
+  const [recentProducts, setRecentProducts] = React.useState<Record<string, ProductDoc>>({});
   const [recentLoading, setRecentLoading] = React.useState(false);
   React.useEffect(() => {
     const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB as string | undefined;
@@ -100,15 +127,36 @@ export default function CartPage() {
       setRecentLoading(true);
       try {
         const res = await databases.listDocuments(dbId, ordersCol, [Query.equal('user_uuid', user.$id), Query.orderDesc('$createdAt'), Query.limit(10)]);
-        const items: any[] = [];
-        for (const o of res.documents as any[]) {
+        const items: CartLineItem[] = [];
+        const orderDocs = (res.documents as unknown[]) as Array<Record<string, unknown>>;
+        for (const o of orderDocs) {
           const arr = Array.isArray(o.selected_products) ? o.selected_products : [];
           for (const s of arr) {
-            try { items.push(typeof s === 'string' ? JSON.parse(s) : s); } catch {}
+            try {
+              if (typeof s === 'string') {
+                const parsed = JSON.parse(s);
+                if (parsed && typeof parsed === 'object' && 'uuid' in parsed) {
+                  items.push({
+                    uuid: String((parsed as Record<string, unknown>).uuid),
+                    quantity: Number((parsed as Record<string, unknown>).quantity || 0),
+                    color: typeof (parsed as Record<string, unknown>).color === 'string' ? String((parsed as Record<string, unknown>).color) : undefined,
+                    personalized: typeof (parsed as Record<string, unknown>).personalized === 'string' ? String((parsed as Record<string, unknown>).personalized) : undefined,
+                  });
+                }
+              } else if (s && typeof s === 'object' && 'uuid' in s) {
+                const so = s as Record<string, unknown>;
+                items.push({
+                  uuid: String(so.uuid),
+                  quantity: Number(so.quantity || 0),
+                  color: typeof so.color === 'string' ? String(so.color) : undefined,
+                  personalized: typeof so.personalized === 'string' ? String(so.personalized) : undefined,
+                });
+              }
+            } catch {}
           }
         }
         // group
-        const map = new Map<string, { key: string; sample: any; quantity: number }>();
+        const map = new Map<string, { key: string; sample: CartLineItem; quantity: number }>();
         for (const it of items) {
           if (!it || !it.uuid) continue;
           const key = `${it.uuid}|${it.color || ''}|${it.personalized || ''}`;
@@ -122,8 +170,16 @@ export default function CartPage() {
         if (productsCol && groupedRecent.length) {
           const uuids = Array.from(new Set(groupedRecent.map(g => g.sample.uuid)));
           const res2 = await databases.listDocuments(dbId, productsCol, [Query.equal('uuid', uuids), Query.limit(100)]);
-          const pmap: Record<string, any> = {};
-          for (const d of res2.documents as any[]) pmap[String(d.uuid)] = d;
+          const pmap: Record<string, ProductDoc> = {};
+          const docs2 = (res2.documents as unknown[]) as Array<Record<string, unknown>>;
+          for (const d of docs2) {
+            const uuid = typeof d.uuid === 'string' ? d.uuid : '';
+            if (!uuid) continue;
+            const name = typeof d.name === 'string' ? d.name : undefined;
+            const price = (typeof d.price === 'string' || typeof d.price === 'number') ? (d.price as string | number) : '0';
+            const stock = typeof d.stock === 'number' ? d.stock : Number(d.stock ?? 0);
+            pmap[uuid] = { uuid, name, price, stock };
+          }
           setRecentProducts(pmap);
         } else {
           setRecentProducts({});
@@ -239,7 +295,7 @@ export default function CartPage() {
                     className="h-11 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold"
                     isDisabled={accountLoading || selectedCount === 0}
                     onClick={() => {
-                      if (!userInfo || userInfo.shipping_info !== true) {
+                      if (!userInfo || userInfo?.shipping_info !== true) {
                         router.push('/shipping-info');
                       } else {
                         startCheckout();

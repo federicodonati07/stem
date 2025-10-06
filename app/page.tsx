@@ -10,7 +10,12 @@ import AboutSection from './components/AboutSection';
 import Footer from './components/Footer';
 
 export default function HomePage() {
-  const { user, loading, refresh, isAdmin } = useAccount() as any;
+  const { user, loading, refresh, isAdmin } = useAccount() as {
+    user: Record<string, unknown> | null;
+    loading: boolean;
+    refresh: () => void;
+    isAdmin: boolean;
+  };
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {

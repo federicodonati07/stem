@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     );
     form.set("cancel_url", cancel_url || `${req.nextUrl.origin}/cart`);
 
-    items.forEach((it: any, idx: number) => {
+    items.forEach((it: { name?: string; amount?: number; quantity?: number }, idx: number) => {
       const i = String(idx);
       form.set(`line_items[${i}][price_data][currency]`, "eur");
       form.set(

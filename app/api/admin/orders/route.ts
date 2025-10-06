@@ -451,7 +451,7 @@ export async function GET(request: Request) {
         );
       }
       const base = endpoint.replace(/\/$/, "");
-      let doc: any = null;
+      let doc: Record<string, unknown> | null = null;
       if (appwriteId) {
         const res = await fetch(
           `${base}/databases/${dbId}/collections/${ordersCol}/documents/${encodeURIComponent(
@@ -538,10 +538,16 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const updates: Record<string, any> = {};
-    if (typeof speditionInfo === "string")
+    const updates: Partial<{
+      spedition_info: string;
+      status: string;
+    }> = {};
+    if (typeof speditionInfo === "string") {
       updates.spedition_info = speditionInfo;
-    if (typeof status === "string") updates.status = status;
+    }
+    if (typeof status === "string") {
+      updates.status = status;
+    }
     if (Object.keys(updates).length === 0) {
       return NextResponse.json(
         { error: "No fields to update" },
@@ -623,9 +629,11 @@ export async function PATCH(request: Request) {
     }
     const updated = await patchRes.json();
     return NextResponse.json({ ok: true, id: docId, order: updated });
-  } catch (e: any) {
+  } catch (e) {
     const message =
-      typeof e?.message === "string" ? e.message : "Unexpected error";
+      typeof (e as { message?: unknown })?.message === "string"
+        ? (e as { message: string }).message
+        : "Unexpected error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+/* eslint-disable @next/next/no-img-element */
 import { useParams, useRouter } from "next/navigation";
 import { databases, storage, Query } from "../../components/auth/appwriteClient";
 import { useAccount } from "../../components/AccountContext";
@@ -16,7 +17,8 @@ export default function ProductDetailPage() {
 
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [product, setProduct] = React.useState<any>(null);
+  type ProductDoc = { $id?: string; uuid: string; name?: string; description?: string; price?: string | number; colors?: unknown[]; personalizable?: boolean; category?: string };
+  const [product, setProduct] = React.useState<ProductDoc | null>(null);
   const [color, setColor] = React.useState<string | undefined>(undefined);
   const [personalizeMode, setPersonalizeMode] = React.useState<"none" | "text" | "image">("none");
   const [personalizeText, setPersonalizeText] = React.useState("");
@@ -48,14 +50,24 @@ export default function ProductDetailPage() {
       try {
         const res = await databases.listDocuments(dbId, productsCol, [Query.equal("uuid", params.uuid), Query.limit(1)]);
         if (res.total === 0) { setError("Prodotto non trovato"); setLoading(false); return; }
-        const doc: any = res.documents[0];
-        setProduct(doc);
-        const colors: string[] = Array.isArray(doc.colors) ? doc.colors.map((c: any) => String(c)) : [];
+        const doc = res.documents[0] as Record<string, unknown>;
+        const mapped: ProductDoc = {
+          $id: typeof doc.$id === 'string' ? doc.$id : undefined,
+          uuid: String(doc.uuid || params.uuid),
+          name: typeof doc.name === 'string' ? doc.name : undefined,
+          description: typeof doc.description === 'string' ? doc.description : undefined,
+          price: (typeof doc.price === 'string' || typeof doc.price === 'number') ? (doc.price as string | number) : undefined,
+          colors: Array.isArray(doc.colors) ? (doc.colors as unknown[]) : [],
+          personalizable: Boolean(doc.personalizable),
+          category: typeof doc.category === 'string' ? doc.category : undefined,
+        };
+        setProduct(mapped);
+        const colors: string[] = Array.isArray(mapped.colors) ? (mapped.colors as unknown[]).map((c) => String(c)) : [];
         setColor(colors[0]);
-        const isPersonalizable = !!doc.personalizable && (doc.category === 'Stickers' || doc.category === 'Plate');
+        const isPersonalizable = !!mapped.personalizable && (mapped.category === 'Stickers' || mapped.category === 'Plate');
         if (isPersonalizable) {
           // Se Stickers, niente "nessuna personalizzazione"
-          setPersonalizeMode(doc.category === 'Stickers' ? 'text' : 'text');
+          setPersonalizeMode(mapped.category === 'Stickers' ? 'text' : 'text');
         } else {
           setPersonalizeMode('none');
         }
@@ -124,7 +136,7 @@ export default function ProductDetailPage() {
   if (error) return <div className="min-h-screen flex items-center justify-center text-red-600">{error}</div>;
   if (!product) return null;
 
-  const colors: string[] = Array.isArray(product.colors) ? product.colors.map((c: any) => String(c)) : [];
+  const colors: string[] = Array.isArray(product.colors) ? (product.colors as unknown[]).map((c) => String(c)) : [];
   const canPersonalize = !!product.personalizable && (product.category === 'Stickers' || product.category === 'Plate');
   const forcePersonalization = product.category === 'Stickers' && !!product.personalizable;
 

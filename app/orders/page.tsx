@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+/* eslint-disable @next/next/no-img-element */
 import { databases, Query } from "../components/auth/appwriteClient";
 import { useAccount } from "../components/AccountContext";
 import { Button } from "@heroui/react";
@@ -19,10 +20,12 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function OrdersPage() {
   const { user } = useAccount();
-  const [orders, setOrders] = React.useState<any[]>([]);
+  type OrderDoc = { $id: string; status?: string; order_uuid?: string; selected_products?: unknown[]; spedition_info?: string };
+  type ProductDoc = { uuid?: string; name?: string; price?: string | number };
+  const [orders, setOrders] = React.useState<OrderDoc[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [productsMap, setProductsMap] = React.useState<Record<string, any>>({});
+  const [productsMap, setProductsMap] = React.useState<Record<string, ProductDoc>>({});
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
   const [copied, setCopied] = React.useState<Record<string, boolean>>({});
 
@@ -37,7 +40,7 @@ export default function OrdersPage() {
       setError(null);
       try {
         const res = await databases.listDocuments(dbId, ordersCol, [Query.equal('user_uuid', user.$id), Query.orderDesc('$createdAt'), Query.limit(50)]);
-        const docs = (res.documents as any[]) || [];
+        const docs = (res.documents as unknown[]) as OrderDoc[] || [];
         const filtered = docs.filter((d) => String(d?.status || '').toLowerCase() !== 'archiviato');
         setOrders(filtered);
       } catch {
@@ -65,8 +68,9 @@ export default function OrdersPage() {
       if (uuids.size === 0) { setProductsMap({}); return; }
       try {
         const res = await databases.listDocuments(dbId, productsCol, [Query.equal('uuid', Array.from(uuids)), Query.limit(200)]);
-        const map: Record<string, any> = {};
-        for (const d of res.documents as any[]) map[String(d.uuid)] = d;
+        const map: Record<string, ProductDoc> = {};
+        const docs2 = (res.documents as unknown[]) as Array<Record<string, unknown>>;
+        for (const d of docs2) map[String(d.uuid as string)] = { uuid: String(d.uuid as string), name: typeof d.name === 'string' ? d.name : undefined, price: (typeof d.price === 'string' || typeof d.price === 'number') ? (d.price as string | number) : undefined };
         setProductsMap(map);
       } catch {
         setProductsMap({});
@@ -80,7 +84,7 @@ export default function OrdersPage() {
     const i = steps.indexOf(s);
     return i >= 0 ? i : 0;
   }
-  function parsePriceToNumber(val: any): number {
+  function parsePriceToNumber(val: unknown): number {
     const n = parseFloat(String(val ?? '').replace(/[^0-9.,]/g, '').replace(',', '.'));
     return Number.isFinite(n) ? n : 0;
   }
@@ -113,7 +117,7 @@ export default function OrdersPage() {
           <div className="space-y-4">
             {orders.map((o) => {
               const items = Array.isArray(o.selected_products) ? o.selected_products : [];
-              const parsed = items.map((s: any) => { try { return typeof s === 'string' ? JSON.parse(s) : s; } catch { return null; } }).filter(Boolean);
+              const parsed = items.map((s: unknown) => { try { return typeof s === 'string' ? JSON.parse(s as string) : s; } catch { return null; } }).filter(Boolean) as Array<{ uuid?: string; quantity?: number; unit_price?: string | number; personalized?: string; color?: string }>;
               const idx = statusIndex(o.status);
               const percent = (idx / (steps.length - 1)) * 100;
               const isOpen = !!open[o.$id];
@@ -208,12 +212,12 @@ export default function OrdersPage() {
                   {isOpen && (
                     <div className="px-5 pb-5">
                       <div className="divide-y divide-gray-100">
-                        {parsed.map((it: any, idx2: number) => (
+                        {parsed.map((it, idx2: number) => (
                           <div key={idx2} className="py-3 flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                              <img src={`/api/media/products/${it.uuid}`} alt={it.uuid} className="w-12 h-12 rounded-lg object-cover border" onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = '/window.svg'; }} />
+                              <img src={`/api/media/products/${it.uuid}`} alt={String(it.uuid)} className="w-12 h-12 rounded-lg object-cover border" onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = '/window.svg'; }} />
                               <div className="text-sm text-gray-700">
-                                <div className="font-medium text-gray-900">{productsMap[it.uuid]?.name || `Prodotto ${it.uuid}`}</div>
+                                <div className="font-medium text-gray-900">{productsMap[it.uuid || '']?.name || `Prodotto ${it.uuid}`}</div>
                                 <div className="flex items-center gap-2">
                                   {it.personalized ? (
                                     <span className="px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-xs">{String(it.personalized).startsWith('/api/media/products/') ? 'Immagine' : `Testo: "${String(it.personalized).slice(0, 16)}${String(it.personalized).length > 16 ? '…' : ''}"`}</span>

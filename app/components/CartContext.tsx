@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
 import { databases, ID, Query, storage } from "./auth/appwriteClient";
 import { useAccount } from "./AccountContext";
 
@@ -78,8 +78,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await databases.listDocuments(dbId, cartsCol, [Query.equal("user_uuid", user.$id)]);
       if (res.total > 0) {
-        const doc = res.documents[0] as any;
-        setCartId(doc.$id as string);
+        const doc = res.documents[0] as { $id: string; products?: unknown[] };
+        setCartId(doc.$id);
         setCartItems(decodeItems(doc.products));
         return doc.$id as string;
       }
@@ -97,26 +97,26 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     if (!user || !dbId || !cartsCol) return;
     setLoading(true);
     setError(null);
     try {
       const res = await databases.listDocuments(dbId, cartsCol, [Query.equal("user_uuid", user.$id)]);
       if (res.total > 0) {
-        const doc = res.documents[0] as any;
-        setCartId(doc.$id as string);
+        const doc = res.documents[0] as { $id: string; products?: unknown[] };
+        setCartId(doc.$id);
         setCartItems(decodeItems(doc.products));
       } else {
         setCartId(null);
         setCartItems([]);
       }
-    } catch (e) {
+    } catch {
       setError("Impossibile caricare il carrello");
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, dbId, cartsCol]);
 
   const persist = async (items: CartItem[]) => {
     if (!dbId || !cartsCol) { console.error('persist missing db/cartsCol'); return; }
@@ -126,7 +126,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       await databases.updateDocument(dbId, cartsCol, id, { products: encodeItems(items) });
       const res = await databases.listDocuments(dbId, cartsCol, [Query.equal("user_uuid", user!.$id)]);
       if (res.total > 0) {
-        const doc = res.documents[0] as any;
+        const doc = res.documents[0] as { products?: unknown[] };
         setCartItems(decodeItems(doc.products));
       }
     } catch (e) {
@@ -164,7 +164,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
     const id = cartId || (await ensureCart());
     if (!id) return;
-    let items = [...cartItems];
+    const items = [...cartItems];
     const idx = items.findIndex((i) => i.uuid === productUuid && !i.purchased && (personalized === undefined || i.personalized === personalized) && (color === undefined || i.color === color));
     if (idx >= 0) {
       if (quantity <= 0) {
@@ -233,7 +233,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     if (user) {
       refresh();
     }
-  }, [user]);
+  }, [user, refresh]);
 
   return (
     <CartContext.Provider value={{ cartId, cartItems, cartCount, loading, error, refresh, addToCart, updateQuantity, setPurchased, removeItem, clearCart }}>

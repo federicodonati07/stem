@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
         );
         if (tm.ok) {
           const data = await tm.json();
-          const members: any[] = Array.isArray(data?.memberships)
+          const members: { userId?: string; userID?: string }[] = Array.isArray(data?.memberships)
             ? data.memberships
             : [];
           // pick first membership
