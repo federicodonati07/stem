@@ -130,10 +130,15 @@ export const AccountProvider = ({ children }: { children: React.ReactNode }) => 
   const refresh = () => fetchUser();
 
   const logout = async () => {
-    await account.deleteSession("current");
-    setUser(null);
-    setUserInfo(null);
-    setIsAdmin(false);
+    try {
+      await account.deleteSession("current");
+    } catch (e) {
+      // ensure client state clears even if network fails
+    } finally {
+      setUser(null);
+      setUserInfo(null);
+      setIsAdmin(false);
+    }
   };
 
   return (

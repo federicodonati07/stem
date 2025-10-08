@@ -9,7 +9,7 @@ import { Button } from '@heroui/react';
 import Link from 'next/link';
 import { useCart } from './CartContext';
 import { databases, Query } from "./auth/appwriteClient";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -19,6 +19,7 @@ const Header = () => {
   const { cartCount } = useCart();
   const pathname = usePathname();
   const [ordersToReview, setOrdersToReview] = useState<number>(0);
+  const router = useRouter();
 
   // Fetch count of 'pagato' orders for admin badge
   React.useEffect(() => {
@@ -113,7 +114,10 @@ const Header = () => {
                 </button>
                 {avatarMenu && (
                   <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-2">
-                    <Link href="/cart" className="flex items-center px-4 py-2 text-purple-700 hover:bg-purple-50 transition-colors font-semibold border-b border-purple-100">
+                    <button
+                      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); router.push('/cart'); setAvatarMenu(false); }}
+                      className="w-full text-left flex items-center px-4 py-2 text-purple-700 hover:bg-purple-50 transition-colors font-semibold border-b border-purple-100"
+                    >
                       <span className="relative inline-flex items-center">
                         <ShoppingBag size={16} className="mr-2" />
                         Carrello
@@ -121,18 +125,18 @@ const Header = () => {
                           <span className="ml-2 inline-flex items-center justify-center h-5 min-w-[20px] px-1 rounded-full bg-purple-600 text-white text-xs font-semibold">{cartCount}</span>
                         )}
                       </span>
-                    </Link>
-                    <a
-                      href="/shipping-info"
-                      className="flex items-center px-4 py-2 text-blue-700 hover:bg-blue-50 transition-colors font-semibold border-b border-blue-100"
+                    </button>
+                    <button
+                      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); console.log('[dropdown] click: shipping-info (desktop)'); router.push('/shipping-info'); setAvatarMenu(false); }}
+                      className="w-full text-left flex items-center px-4 py-2 text-blue-700 hover:bg-blue-50 transition-colors font-semibold border-b border-blue-100"
                     >
                       <Info size={16} className="mr-2" />
                       Info Spedizione
-                    </a>
+                    </button>
                     {isAdmin ? (
-                      <a
-                        href="/admin"
-                        className="flex items-center px-4 py-2 text-yellow-700 hover:bg-yellow-50 transition-colors font-semibold border-b border-yellow-100"
+                      <button
+                        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); console.log('[dropdown] click: admin/dashboard (desktop)'); router.push('/admin'); setAvatarMenu(false); }}
+                        className="w-full text-left flex items-center px-4 py-2 text-yellow-700 hover:bg-yellow-50 transition-colors font-semibold border-b border-yellow-100"
                       >
                         <span className="relative inline-flex items-center">
                           <List size={16} className="mr-2" />
@@ -143,18 +147,18 @@ const Header = () => {
                             </span>
                           )}
                         </span>
-                      </a>
+                      </button>
                     ) : (
-                      <a
-                        href="/orders"
-                        className="flex items-center px-4 py-2 text-yellow-700 hover:bg-yellow-50 transition-colors font-semibold border-b border-yellow-100"
+                      <button
+                        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); console.log('[dropdown] click: orders (desktop)'); router.push('/orders'); setAvatarMenu(false); }}
+                        className="w-full text-left flex items-center px-4 py-2 text-yellow-700 hover:bg-yellow-50 transition-colors font-semibold border-b border-yellow-100"
                       >
                         <List size={16} className="mr-2" />
                         I miei ordini
-                      </a>
+                      </button>
                     )}
                     <button
-                      onClick={logout}
+                      onMouseDown={async (e) => { e.preventDefault(); e.stopPropagation(); console.log('[dropdown] click: logout (desktop)'); setAvatarMenu(false); await logout(); router.push('/'); }}
                       className="flex items-center w-full px-4 py-2 text-red-600 hover:bg-red-50 transition-colors font-semibold cursor-pointer"
                     >
                       <LogOut size={16} className="mr-2" />

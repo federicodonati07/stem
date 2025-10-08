@@ -16,7 +16,10 @@ export default function LoginPage() {
       OAuthProvider.Google,
       window.location.origin + "/auth/login?oauth=1", // redirect dopo login
       window.location.origin + "/auth/login?error=1" // redirect dopo errore
+
+      
     );
+    console.log(window.location.origin)
   }
 
   // 2. Dopo redirect, controlla se l'utente è loggato e reindirizza
