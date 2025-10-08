@@ -116,7 +116,7 @@ const Header = () => {
                   <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-2">
                     <button
                       onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); router.push('/cart'); setAvatarMenu(false); }}
-                      className="w-full text-left flex items-center px-4 py-2 text-purple-700 hover:bg-purple-50 transition-colors font-semibold border-b border-purple-100"
+                      className="w-full text-left flex items-center px-4 py-2 text-purple-700 hover:bg-purple-50 transition-colors font-semibold border-b border-purple-100 cursor-pointer"
                     >
                       <span className="relative inline-flex items-center">
                         <ShoppingBag size={16} className="mr-2" />
@@ -128,7 +128,7 @@ const Header = () => {
                     </button>
                     <button
                       onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); console.log('[dropdown] click: shipping-info (desktop)'); router.push('/shipping-info'); setAvatarMenu(false); }}
-                      className="w-full text-left flex items-center px-4 py-2 text-blue-700 hover:bg-blue-50 transition-colors font-semibold border-b border-blue-100"
+                      className="w-full text-left flex items-center px-4 py-2 text-blue-700 hover:bg-blue-50 transition-colors font-semibold border-b border-blue-100 cursor-pointer"
                     >
                       <Info size={16} className="mr-2" />
                       Info Spedizione
@@ -136,7 +136,7 @@ const Header = () => {
                     {isAdmin ? (
                       <button
                         onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); console.log('[dropdown] click: admin/dashboard (desktop)'); router.push('/admin'); setAvatarMenu(false); }}
-                        className="w-full text-left flex items-center px-4 py-2 text-yellow-700 hover:bg-yellow-50 transition-colors font-semibold border-b border-yellow-100"
+                        className="w-full text-left flex items-center px-4 py-2 text-yellow-700 hover:bg-yellow-50 transition-colors font-semibold border-b border-yellow-100 cursor-pointer"
                       >
                         <span className="relative inline-flex items-center">
                           <List size={16} className="mr-2" />
@@ -151,7 +151,7 @@ const Header = () => {
                     ) : (
                       <button
                         onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); console.log('[dropdown] click: orders (desktop)'); router.push('/orders'); setAvatarMenu(false); }}
-                        className="w-full text-left flex items-center px-4 py-2 text-yellow-700 hover:bg-yellow-50 transition-colors font-semibold border-b border-yellow-100"
+                        className="w-full text-left flex items-center px-4 py-2 text-yellow-700 hover-bg-yellow-50 transition-colors font-semibold border-b border-yellow-100 cursor-pointer"
                       >
                         <List size={16} className="mr-2" />
                         I miei ordini
