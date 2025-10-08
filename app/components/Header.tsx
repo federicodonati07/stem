@@ -185,13 +185,103 @@ const Header = () => {
             )}
           </div>
 
-          {/* Mobile Menu Button */}
-          <button
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
-          >
-            {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
-          </button>
+          {/* Mobile Controls: auth + menu */}
+          <div className="md:hidden flex items-center space-x-2">
+            {loading ? null : user ? (
+              <div className="relative" ref={avatarRef}>
+                <button
+                  className="flex items-center p-1 rounded-full hover:bg-gray-100 transition-all"
+                  onClick={() => setAvatarMenu((v) => !v)}
+                  aria-label="Account"
+                >
+                  <img
+                    src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=6D28D9&color=fff&size=28`}
+                    alt={user.name}
+                    className="w-7 h-7 rounded-full border-2 border-purple-200"
+                  />
+                </button>
+                {avatarMenu && (
+                  <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-2">
+                    <Link href="/cart" className="flex items-center px-4 py-2 text-purple-700 hover:bg-purple-50 transition-colors font-semibold border-b border-purple-100">
+                      <span className="relative inline-flex items-center">
+                        <ShoppingBag size={16} className="mr-2" />
+                        Carrello
+                        {cartCount > 0 && (
+                          <span className="ml-2 inline-flex items-center justify-center h-5 min-w-[20px] px-1 rounded-full bg-purple-600 text-white text-xs font-semibold">{cartCount}</span>
+                        )}
+                      </span>
+                    </Link>
+                    <a
+                      href="/shipping-info"
+                      className="flex items-center px-4 py-2 text-blue-700 hover:bg-blue-50 transition-colors font-semibold border-b border-blue-100"
+                    >
+                      <Info size={16} className="mr-2" />
+                      Info Spedizione
+                    </a>
+                    {isAdmin ? (
+                      <a
+                        href="/admin"
+                        className="flex items-center px-4 py-2 text-yellow-700 hover:bg-yellow-50 transition-colors font-semibold border-b border-yellow-100"
+                      >
+                        <span className="relative inline-flex items-center">
+                          <List size={16} className="mr-2" />
+                          Dashboard
+                          {ordersToReview > 0 && (
+                            <span className="ml-2 inline-flex items-center justify-center h-5 min-w-[20px] px-1 rounded-full bg-red-600 text-white text-xs font-semibold">
+                              {ordersToReview}
+                            </span>
+                          )}
+                        </span>
+                      </a>
+                    ) : (
+                      <a
+                        href="/orders"
+                        className="flex items-center px-4 py-2 text-yellow-700 hover:bg-yellow-50 transition-colors font-semibold border-b border-yellow-100"
+                      >
+                        <List size={16} className="mr-2" />
+                        I miei ordini
+                      </a>
+                    )}
+                    <button
+                      onClick={logout}
+                      className="flex items-center w-full px-4 py-2 text-red-600 hover:bg-red-50 transition-colors font-semibold cursor-pointer"
+                    >
+                      <LogOut size={16} className="mr-2" />
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <Link href="/auth/login">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    startContent={<User size={16} />}
+                    className="text-gray-700 hover:text-purple-600 rounded-full"
+                  >
+                    Accedi
+                  </Button>
+                </Link>
+                <Link href="/auth/register">
+                  <Button
+                    size="sm"
+                    className="bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-full"
+                  >
+                    Registrati
+                  </Button>
+                </Link>
+              </>
+            )}
+            <button
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              aria-label="Menu"
+            >
+              {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+          </div>
         </div>
 
         {/* Mobile Menu */}
@@ -214,46 +304,48 @@ const Header = () => {
                   <span className="font-medium">{item.name}</span>
                 </a>
               ))}
-              <div className="pt-4 border-t border-gray-200 space-y-2">
-                <Link href="/shipping-info" onClick={() => setIsMenuOpen(false)}>
+              {user && (
+                <div className="pt-4 border-t border-gray-200 space-y-2">
+                  <Link href="/shipping-info" onClick={() => setIsMenuOpen(false)}>
+                    <Button
+                      className="w-full text-blue-700 hover:text-blue-900 rounded-full justify-start"
+                      variant="ghost"
+                      startContent={<Info size={16} />}
+                    >
+                      Info Spedizione
+                    </Button>
+                  </Link>
+                  {isAdmin ? (
+                    <Link href="/admin" onClick={() => setIsMenuOpen(false)}>
+                      <Button
+                        className="w-full text-yellow-700 hover:text-yellow-900 rounded-full justify-start"
+                        variant="ghost"
+                        startContent={<List size={16} />}
+                      >
+                        Dashboard
+                      </Button>
+                    </Link>
+                  ) : (
+                    <Link href="/orders" onClick={() => setIsMenuOpen(false)}>
+                      <Button
+                        className="w-full text-yellow-700 hover:text-yellow-900 rounded-full justify-start"
+                        variant="ghost"
+                        startContent={<List size={16} />}
+                      >
+                        I miei ordini
+                      </Button>
+                    </Link>
+                  )}
                   <Button
-                    className="w-full text-blue-700 hover:text-blue-900 rounded-full justify-start"
+                    onClick={() => { setIsMenuOpen(false); logout(); }}
+                    className="w-full text-red-600 hover:text-red-700 rounded-full justify-start"
                     variant="ghost"
-                    startContent={<Info size={16} />}
+                    startContent={<LogOut size={16} />}
                   >
-                    Info Spedizione
+                    Logout
                   </Button>
-                </Link>
-                {isAdmin ? (
-                  <Link href="/admin" onClick={() => setIsMenuOpen(false)}>
-                    <Button
-                      className="w-full text-yellow-700 hover:text-yellow-900 rounded-full justify-start"
-                      variant="ghost"
-                      startContent={<List size={16} />}
-                    >
-                      Dashboard
-                    </Button>
-                  </Link>
-                ) : (
-                  <Link href="/orders" onClick={() => setIsMenuOpen(false)}>
-                    <Button
-                      className="w-full text-yellow-700 hover:text-yellow-900 rounded-full justify-start"
-                      variant="ghost"
-                      startContent={<List size={16} />}
-                    >
-                      I miei ordini
-                    </Button>
-                  </Link>
-                )}
-                <Button
-                  onClick={logout}
-                  className="w-full text-red-600 hover:text-red-700 rounded-full justify-start"
-                  variant="ghost"
-                  startContent={<LogOut size={16} />}
-                >
-                  Logout
-                </Button>
-              </div>
+                </div>
+              )}
             </nav>
           </motion.div>
         )}
