@@ -2,7 +2,7 @@ import { Client, Account, Databases, ID, Query, Teams } from "appwrite";
 import { Storage } from "appwrite";
 import { OAuthProvider } from "appwrite";
 
-const client = new Client();
+export const client = new Client();
 
 client
   .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!) // Es: 'https://cloud.appwrite.io/v1'

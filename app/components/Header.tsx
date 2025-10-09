@@ -168,24 +168,15 @@ const Header = () => {
                 )}
               </div>
             ) : (
-              <>
-                <Link href="/auth/login">
-                  <Button
-                    variant="ghost"
-                    startContent={<User size={16} />}
-                    className="text-gray-700 hover:text-purple-600 rounded-full"
-                  >
-                    Accedi
-                  </Button>
-                </Link>
-                <Link href="/auth/register">
-                  <Button
-                    className="bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-full"
-                  >
-                    Registrati
-                  </Button>
-                </Link>
-              </>
+              <Link href="/auth/login">
+                <Button
+                  variant="ghost"
+                  startContent={<User size={16} />}
+                  className="text-gray-700 hover:text-purple-600 rounded-full"
+                >
+                  Accedi
+                </Button>
+              </Link>
             )}
           </div>
 
@@ -257,26 +248,16 @@ const Header = () => {
                 )}
               </div>
             ) : (
-              <>
-                <Link href="/auth/login">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    startContent={<User size={16} />}
-                    className="text-gray-700 hover:text-purple-600 rounded-full"
-                  >
-                    Accedi
-                  </Button>
-                </Link>
-                <Link href="/auth/register">
-                  <Button
-                    size="sm"
-                    className="bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-full"
-                  >
-                    Registrati
-                  </Button>
-                </Link>
-              </>
+              <Link href="/auth/login">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  startContent={<User size={16} />}
+                  className="text-gray-700 hover:text-purple-600 rounded-full"
+                >
+                  Accedi
+                </Button>
+              </Link>
             )}
             <button
               onClick={() => setIsMenuOpen(!isMenuOpen)}
