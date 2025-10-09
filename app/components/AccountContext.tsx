@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { account, databases, createUserInfo, Query, teams } from "./auth/appwriteClient";
+import { account, databases, createUserInfo, Query, teams, client } from "./auth/appwriteClient";
 
 export interface User {
   $id: string;
@@ -124,6 +124,13 @@ export const AccountProvider = ({ children }: { children: React.ReactNode }) => 
   };
 
   useEffect(() => {
+    // Reimposta JWT salvato per persistenza login
+    try {
+      const stored = typeof window !== 'undefined' ? localStorage.getItem('appwrite_jwt') : null;
+      if (stored) {
+        client.setJWT(stored);
+      }
+    } catch {}
     fetchUser();
   }, []);
 
@@ -135,6 +142,8 @@ export const AccountProvider = ({ children }: { children: React.ReactNode }) => 
     } catch (e) {
       // ensure client state clears even if network fails
     } finally {
+      try { localStorage.removeItem('appwrite_jwt'); } catch {}
+      try { client.setJWT(""); } catch {}
       setUser(null);
       setUserInfo(null);
       setIsAdmin(false);

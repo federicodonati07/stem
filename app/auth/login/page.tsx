@@ -40,6 +40,7 @@ export default function LoginPage() {
           // Crea JWT e passa ad header Authorization (no cookie)
           const jwtRes = await account.createJWT();
           client.setJWT(jwtRes.jwt);
+          try { localStorage.setItem('appwrite_jwt', jwtRes.jwt); } catch {}
 
           // Crea user_info minimale se assente
           const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB!;
@@ -69,9 +70,8 @@ export default function LoginPage() {
             }
           }
 
-          // Pulisci flag, opzionale: chiudi la sessione cookie
+          // Pulisci flag
           localStorage.removeItem('user_info_processing');
-          try { await account.deleteSession('current'); } catch {}
 
           // Vai alla home
           router.replace("/");
