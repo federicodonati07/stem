@@ -8,7 +8,7 @@ import { Menu, X, ShoppingBag, User, Palette, Home, Info } from 'lucide-react';
 import { Button } from '@heroui/react';
 import Link from 'next/link';
 import { useCart } from './CartContext';
-import { databases, Query } from "./auth/appwriteClient";
+import { supabase, ORDERS_DB } from "./auth/supabaseClient";
 import { usePathname, useRouter } from "next/navigation";
 
 const Header = () => {
@@ -27,11 +27,17 @@ const Header = () => {
     async function run() {
       try {
         if (!isAdmin) { setOrdersToReview(0); return; }
-        const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB as string | undefined;
-        const ordersCol = process.env.NEXT_PUBLIC_APPWRITE_ORDERS_DB as string | undefined;
-        if (!dbId || !ordersCol) { setOrdersToReview(0); return; }
-        const res = await databases.listDocuments(dbId, ordersCol, [Query.equal('status', 'pagato'), Query.limit(1)]);
-        if (!cancelled) setOrdersToReview(Number(res.total || 0));
+        const { count, error } = await supabase
+          .from(ORDERS_DB)
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'pagato');
+        
+        if (error) {
+          console.error('Error fetching orders count:', error);
+          if (!cancelled) setOrdersToReview(0);
+        } else {
+          if (!cancelled) setOrdersToReview(count || 0);
+        }
       } catch {
         if (!cancelled) setOrdersToReview(0);
       }

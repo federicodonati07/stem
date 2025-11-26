@@ -1,39 +1,43 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_PROJECT_URL!;
+const supabaseKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_API_KEY_RSL!;
+const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
+
+const PRODUCTS_STORAGE =
+  process.env.NEXT_PUBLIC_SUPABASE_PRODUCTS_STORAGE || "products";
+
 export async function GET(_req: Request, context: any) {
-  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-  const bucketId = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_STORAGE;
-  const apiKey =
-    process.env.NEXT_APPWRITE_API_KEY ||
-    process.env.APPWRITE_API_KEY ||
-    process.env.NEXT_PUBLIC_APPWRITE_API_KEY;
-
-  if (!endpoint || !projectId || !bucketId) {
-    return new NextResponse("Missing Appwrite config", { status: 500 });
-  }
   try {
-    const base = endpoint.replace(/\/$/, "");
     const uuid = String(context?.params?.uuid ?? context?.uuid ?? "");
-    const url = `${base}/storage/buckets/${bucketId}/files/${uuid}/view`;
-    const headers: Record<string, string> = { "X-Appwrite-Project": projectId };
-    if (apiKey) headers["X-Appwrite-Key"] = apiKey;
 
-    const res = await fetch(url, { headers, cache: "no-store" });
-    if (!res.ok) {
-      console.error("media proxy error", res.status, uuid);
+    if (!uuid) {
+      return new NextResponse("Missing UUID", { status: 400 });
+    }
+
+    // Try to download the file from Supabase storage
+    const { data, error } = await supabaseAdmin.storage
+      .from(PRODUCTS_STORAGE)
+      .download(uuid);
+
+    if (error || !data) {
+      console.error("media proxy error", error, uuid);
       return new NextResponse("Not found", { status: 404 });
     }
-    const contentType = res.headers.get("content-type") || "image/png";
-    const buf = await res.arrayBuffer();
+
+    // Get content type from blob
+    const contentType = data.type || "image/png";
+    const buf = await data.arrayBuffer();
+
     return new NextResponse(buf, {
       status: 200,
       headers: {
         "Content-Type": contentType,
-        "Cache-Control": "no-store, max-age=0",
-        "CDN-Cache-Control": "no-store",
-        Vary: "*",
+        "Cache-Control": "public, max-age=3600", // Cache for 1 hour
       },
     });
   } catch (e) {

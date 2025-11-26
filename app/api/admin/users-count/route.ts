@@ -1,46 +1,32 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+// Use service role for admin operations
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_PROJECT_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_API_KEY_RSL!
+);
 
 export async function GET() {
   try {
-    const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-    const apiKey =
-      process.env.NEXT_APPWRITE_API_KEY ||
-      process.env.APPWRITE_API_KEY ||
-      process.env.NEXT_PUBLIC_APPWRITE_API_KEY;
+    // Count total users using auth.admin.listUsers()
+    const { count, error } = await supabaseAdmin.auth.admin.listUsers({
+      page: 1,
+      perPage: 1,
+    });
 
-    if (!endpoint || !projectId || !apiKey) {
+    if (error) {
+      console.error("Error fetching users count:", error);
       return NextResponse.json(
-        { error: "Missing Appwrite configuration" },
+        { error: "Failed to fetch users", details: error.message },
         { status: 500 }
       );
     }
 
-    const url = `${endpoint.replace(/\/$/, "")}/users?limit=1`;
-    const res = await fetch(url, {
-      method: "GET",
-      headers: {
-        "X-Appwrite-Project": projectId,
-        "X-Appwrite-Key": apiKey,
-        "Content-Type": "application/json",
-      },
-      // Force server side fetch
-      cache: "no-store",
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      return NextResponse.json(
-        { error: "Failed to fetch users", details: text },
-        { status: res.status }
-      );
-    }
-
-    const data = await res.json();
-    const total = typeof data?.total === "number" ? data.total : 0;
-
-    return NextResponse.json({ total });
+    return NextResponse.json({ total: count || 0 });
   } catch (err) {
+    console.error("Unexpected error:", err);
     return NextResponse.json({ error: "Unexpected error" }, { status: 500 });
   }
 }

@@ -23,7 +23,7 @@ import { Button, Input } from "@heroui/react";
 import Link from "next/link";
 import { ResponsiveContainer, AreaChart, Area, Tooltip, XAxis, YAxis } from "recharts";
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
-import { databases, storage, ID, Query } from "../components/auth/appwriteClient";
+import { supabase, PRODUCTS_DB, PRODUCTS_STORAGE, CATEGORIES_DB, ORDERS_DB, USER_COLLECTION, generateId } from "../components/auth/supabaseClient";
 import Cropper from "react-easy-crop";
 
 // Ordini dinamici da Appwrite
@@ -72,6 +72,7 @@ type ProductDoc = {
   status: boolean;
   personalizable?: boolean;
   colors?: string[];
+  sizes?: string[];
 };
 
 // (rimosso mockProducts)
@@ -120,6 +121,8 @@ export default function AdminDashboard() {
   const [pPersonalizable, setPPersonalizable] = useState(false);
   const [pColorsArr, setPColorsArr] = useState<string[]>([]);
   const [pNewColor, setPNewColor] = useState<string>("#000000");
+  const [pSizesArr, setPSizesArr] = useState<string[]>([]);
+  const [pNewSize, setPNewSize] = useState<string>("");
   const [showCrop, setShowCrop] = useState(false);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
@@ -136,15 +139,8 @@ export default function AdminDashboard() {
     setImgVersionMap((prev) => ({ ...prev, [uuid]: (prev[uuid] || 0) + 1 }));
   }
 
-  const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB as string | undefined;
-  const productsCol = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_DB as string | undefined;
-  const categoriesCol = process.env.NEXT_PUBLIC_APPWRITE_CATEGORIES_DB as string | undefined;
-  const bucketId = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_STORAGE as string | undefined;
-  const ordersCol = process.env.NEXT_PUBLIC_APPWRITE_ORDERS_DB as string | undefined;
-  const userCol = process.env.NEXT_PUBLIC_APPWRITE_USER_COLLECTION as string | undefined;
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID as string | undefined;
-  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT as string | undefined;
-  const apiKey = (process.env.NEXT_APPWRITE_API_KEY || process.env.APPWRITE_API_KEY || process.env.NEXT_PUBLIC_APPWRITE_API_KEY) as string | undefined;
+  // Non più necessario con Supabase - le costanti sono già esportate da supabaseClient
+  // const dbId, productsCol, etc. non servono più
 
   const formatEuro = (amount: number | string | undefined) => {
     const n = typeof amount === 'string' ? Number(amount.replace(/[^0-9.-]/g, '')) : Number(amount);
@@ -186,7 +182,7 @@ export default function AdminDashboard() {
     setShipSaving(false);
     setShipModalOpen(true);
     try {
-      const res = await fetch(`/api/admin/orders?appwriteId=${encodeURIComponent(docId)}`, { cache: 'no-store' });
+      const res = await fetch(`/api/admin/orders?supabaseId=${encodeURIComponent(docId)}`, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         const current = data?.order?.spedition_info as string | undefined;
@@ -209,7 +205,7 @@ export default function AdminDashboard() {
       const res = await fetch('/api/admin/orders', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appwriteId: shipDocId, order_uuid: shipOrderId, spedition_info: `DHL Tracking Number: ${val}`, ...(shipEditOnly ? {} : { status: 'spedito' }) })
+        body: JSON.stringify({ supabaseId: shipDocId, order_uuid: shipOrderId, spedition_info: `DHL Tracking Number: ${val}`, ...(shipEditOnly ? {} : { status: 'spedito' }) })
       });
       if (!res.ok) throw new Error(await res.text());
       await fetchOrders();
@@ -223,7 +219,7 @@ export default function AdminDashboard() {
   }
 
   async function updateOrderStatus(orderDocId: string, newStatus: AdminOrderStatus) {
-    if (!dbId || !ordersCol || !orderDocId) return;
+    if (!orderDocId) return;
     setUpdatingStatus((m) => ({ ...m, [orderDocId]: true }));
     const prev = orders;
     // optimistic UI
@@ -244,10 +240,18 @@ export default function AdminDashboard() {
     try {
       const payload: Record<string, unknown> = { status: newStatus };
       if (String(newStatus).toLowerCase() !== 'spedito') payload.spedition_info = null;
-      await databases.updateDocument(dbId, ordersCol, orderDocId, payload);
+      
+      const { error } = await supabase
+        .from(ORDERS_DB)
+        .update(payload)
+        .eq('id', orderDocId);
+      
+      if (error) throw error;
+      
       // Re-fetch to ensure lists/metrics reflect filters and aggregates
       await fetchOrders();
-    } catch {
+    } catch (e) {
+      console.error('Error updating order status:', e);
       // revert
       setOrders(prev);
     } finally {
@@ -293,13 +297,18 @@ export default function AdminDashboard() {
     setUserModalError(null);
     setUserModalData(null);
     try {
-      if (!dbId || !userCol || !userUuid) {
+      if (!userUuid) {
         setUserModalError('Dati utente non disponibili');
         return;
       }
-      const res = await databases.listDocuments(dbId, userCol, [Query.equal('uuid', userUuid), Query.limit(1)]);
-      const doc = (res.documents || [])[0] as Record<string, unknown>;
-      if (!doc) {
+      
+      const { data: doc, error } = await supabase
+        .from(USER_COLLECTION)
+        .select('*')
+        .eq('uuid', userUuid)
+        .maybeSingle();
+      
+      if (error || !doc) {
         setUserModalError('Utente non trovato');
         return;
       }
@@ -437,21 +446,27 @@ export default function AdminDashboard() {
 
   const fetchOrders = useCallback(async () => {
     setOrdersLoading(true);
-    if (!dbId || !ordersCol) {
-      setOrdersError('Configurazione Appwrite mancante');
-      setOrdersLoading(false);
-      return;
-    }
     setOrdersError(null);
     try {
-      const queries: string[] = [];
-      const res = await databases.listDocuments(dbId, ordersCol, queries);
-      const list = ((res as unknown as DocumentList<AppwriteDocument>).documents || []) as AppwriteDocument[];
-      console.log('[admin/orders] raw documents from Appwrite:', list);
-      const mapped = list.map((d) => mapOrderDoc(d as UnknownRecord));
+      // Fetch orders from Supabase
+      const { data: list, error: ordersError } = await supabase
+        .from(ORDERS_DB)
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (ordersError) {
+        console.error('[admin/orders] Error fetching orders:', ordersError);
+        setOrdersError('Errore caricamento ordini');
+        setOrdersLoading(false);
+        return;
+      }
+      
+      console.log('[admin/orders] raw documents from Supabase:', list);
+      const mapped = (list || []).map((d) => mapOrderDoc(d as UnknownRecord));
       console.log('[admin/orders] mapped orders:', mapped);
+      
       // Enrich names from products by uuid
-      if (dbId && productsCol && mapped.length > 0) {
+      if (mapped.length > 0) {
         const uuids = new Set<string>();
         for (const o of mapped) {
           for (const it of o.items || []) {
@@ -468,68 +483,64 @@ export default function AdminDashboard() {
         }
         if (uuids.size > 0) {
           try {
-            const resP = await databases.listDocuments(dbId, productsCol, [Query.equal('uuid', Array.from(uuids)), Query.limit(200)]);
-            const productByUuid: Record<string, { name?: unknown }> = {};
-            const docs = (resP as { documents?: Array<{ uuid?: unknown; name?: unknown }> })?.documents ?? [];
-            for (const d of docs) {
-              const k = typeof d.uuid === 'string' ? d.uuid : '';
-              if (k) productByUuid[k] = { name: d.name };
+            const { data: productsData, error: productsError } = await supabase
+              .from(PRODUCTS_DB)
+              .select('uuid, name')
+              .in('uuid', Array.from(uuids))
+              .limit(200);
+            
+            if (!productsError && productsData) {
+              const productByUuid: Record<string, { name?: unknown }> = {};
+              for (const d of productsData) {
+                const k = typeof d.uuid === 'string' ? d.uuid : '';
+                if (k) productByUuid[k] = { name: d.name };
+              }
+              for (const o of mapped) {
+                const itemsArr = Array.isArray(o.items) ? o.items : [];
+                o.items = itemsArr.map((raw) => {
+                  const it = raw && typeof raw === 'object' ? (raw as OrderItemDoc) : ({} as OrderItemDoc);
+                  const uuid = typeof it.uuid === 'string' ? it.uuid : '';
+                  const enrichedName = uuid && typeof productByUuid[uuid]?.name === 'string' ? String(productByUuid[uuid]?.name) : '';
+                  return { ...it, name: it.name || (uuid ? enrichedName : it.name) } as OrderItemDoc;
+                });
+              }
+              console.log('[admin/orders] enriched product names for uuids:', Array.from(uuids));
             }
-            for (const o of mapped) {
-              const itemsArr = Array.isArray(o.items) ? o.items : [];
-              o.items = itemsArr.map((raw) => {
-                const it = raw && typeof raw === 'object' ? (raw as OrderItemDoc) : ({} as OrderItemDoc);
-                const uuid = typeof it.uuid === 'string' ? it.uuid : '';
-                const enrichedName = uuid && typeof productByUuid[uuid]?.name === 'string' ? String(productByUuid[uuid]?.name) : '';
-                return { ...it, name: it.name || (uuid ? enrichedName : it.name) } as OrderItemDoc;
-              });
-            }
-            console.log('[admin/orders] enriched product names for uuids:', Array.from(uuids));
-          } catch {}
+          } catch (e) {
+            console.error('[admin/orders] Error enriching product names:', e);
+          }
         }
       }
-      // Enrich user email from Auth using userUuid
-      if (endpoint && projectId && apiKey) {
-        try {
-          const ids = Array.from(new Set(mapped.map((o) => String(o.userUuid || '')).filter(Boolean)));
-          if (ids.length > 0) {
-            const base = endpoint.replace(/\/$/, '');
-            const emailMap: Record<string, string> = {};
-            for (const uid of ids) {
-              try {
-                const resU = await fetch(`${base}/users/${uid}`, {
-                  headers: { 'X-Appwrite-Project': projectId, 'X-Appwrite-Key': apiKey },
-                  cache: 'no-store',
-                });
-                if (resU.ok) {
-                  const u = await resU.json();
-                  emailMap[uid] = String(u?.email || '');
-                }
-              } catch {}
-            }
-            for (const o of mapped) {
-              if (o.userUuid && emailMap[o.userUuid]) o.customerEmail = emailMap[o.userUuid];
-            }
-          }
-        } catch {}
-      }
+      
+      // Enrich user email from Auth using userUuid - For Supabase we can query auth directly
+      // For now, we skip this as it requires service role key in client
+      // Alternative: add email to orders table when creating order
+      
       // Auto-archive: orders shipped over 2 months ago -> archiviato
       try {
-        if (dbId && ordersCol) {
-          const cutoff = new Date();
-          cutoff.setMonth(cutoff.getMonth() - 2);
-          const toArchive = mapped.filter((o) => String(o.status || '').toLowerCase() === 'spedito' && o.$createdAt && new Date(o.$createdAt) < cutoff);
-          if (toArchive.length) {
-            await Promise.all(toArchive.map(async (o) => {
-              try {
-                await databases.updateDocument(dbId, ordersCol, o.$id, { status: 'archiviato', spedition_info: null });
+        const cutoff = new Date();
+        cutoff.setMonth(cutoff.getMonth() - 2);
+        const toArchive = mapped.filter((o) => String(o.status || '').toLowerCase() === 'spedito' && o.$createdAt && new Date(o.$createdAt) < cutoff);
+        if (toArchive.length) {
+          await Promise.all(toArchive.map(async (o) => {
+            try {
+              const { error } = await supabase
+                .from(ORDERS_DB)
+                .update({ status: 'archiviato', spedition_info: null })
+                .eq('id', o.$id);
+              
+              if (!error) {
                 o.status = 'archiviato';
                 o.speditionInfo = '' as unknown as string;
-              } catch {}
-            }));
-          }
+              }
+            } catch (e) {
+              console.error('Error archiving order:', e);
+            }
+          }));
         }
-      } catch {}
+      } catch (e) {
+        console.error('Error in auto-archive:', e);
+      }
 
       // Build metrics: last 30 days like UsersChart (fill zeros for missing days)
       const now = new Date();
@@ -617,17 +628,24 @@ export default function AdminDashboard() {
     } finally {
       setOrdersLoading(false);
     }
-  }, [dbId, ordersCol, ordersSearch, statusFilter, mapOrderDoc, productsCol, endpoint, projectId, apiKey]);
+  }, [ordersSearch, statusFilter, mapOrderDoc]);
 
   const fetchProducts = useCallback(async () => {
-    if (!dbId || !productsCol) return;
     setProductsLoading(true);
     setProductsError(null);
     try {
-      const res = await databases.listDocuments(dbId, productsCol, []);
-      const list = (res.documents || []) as { [key: string]: unknown; $id: string }[];
-      const mapped: ProductDoc[] = list.map((d) => ({
-        $id: d.$id,
+      const { data: list, error } = await supabase
+        .from(PRODUCTS_DB)
+        .select('*');
+      
+      if (error) {
+        console.error('Error fetching products:', error);
+        setProductsError("Impossibile caricare i prodotti");
+        return;
+      }
+      
+      const mapped: ProductDoc[] = (list || []).map((d) => ({
+        $id: String(d.id),
         name: String(d.name ?? ""),
         description: String(d.description ?? ""),
         price: String(d.price ?? ""),
@@ -637,15 +655,17 @@ export default function AdminDashboard() {
         img_url: String(d.img_url ?? "").split('?')[0],
         status: Boolean(d.status ?? true),
         personalizable: Boolean(d.personalizable ?? false),
-        colors: Array.isArray(d.colors as unknown[]) ? (d.colors as unknown[]).map((c) => String(c)) : [],
+        colors: Array.isArray(d.colors) ? d.colors.map((c: any) => String(c)) : [],
+        sizes: Array.isArray(d.sizes) ? d.sizes.map((s: any) => String(s)) : [],
       }));
       setProducts(mapped);
-    } catch {
+    } catch (e) {
+      console.error('fetchProducts error:', e);
       setProductsError("Impossibile caricare i prodotti");
     } finally {
       setProductsLoading(false);
     }
-  }, [dbId, productsCol]);
+  }, []);
 
   // Categories state and CRUD
   type Category = { $id: string; name: string };
@@ -658,14 +678,22 @@ export default function AdminDashboard() {
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      if (!dbId || !categoriesCol) return;
       setCategoriesLoading(true);
       setCategoriesError(null);
       try {
-        const res = await databases.listDocuments(dbId, categoriesCol, []);
+        const { data: list, error } = await supabase
+          .from(CATEGORIES_DB)
+          .select('*');
+        
         if (cancelled) return;
-        const list = (res.documents || []) as { $id: string; name?: unknown }[];
-        const mapped: Category[] = list.map((d) => ({ $id: d.$id, name: String(d.name ?? "") }));
+        
+        if (error) {
+          console.error('fetchCategories error', error);
+          setCategoriesError("Impossibile caricare le categorie");
+          return;
+        }
+        
+        const mapped: Category[] = (list || []).map((d) => ({ $id: String(d.id), name: String(d.name ?? "") }));
         mapped.sort((a, b) => a.name.localeCompare(b.name));
         setCategories(mapped);
       } catch (e) {
@@ -677,26 +705,38 @@ export default function AdminDashboard() {
     }
     run();
     return () => { cancelled = true; };
-  }, [dbId, categoriesCol]);
+  }, []);
 
   async function addCategory() {
-    if (!dbId || !categoriesCol) return;
     const name = newCategory.trim().slice(0, 50);
     if (!name) return;
     try {
-      await databases.createDocument(dbId, categoriesCol, ID.unique(), { name });
+      const { error } = await supabase
+        .from(CATEGORIES_DB)
+        .insert({ name });
+      
+      if (error) {
+        console.error('addCategory error', error);
+        setCategoryMsg("Errore aggiunta categoria");
+        return;
+      }
+      
       setNewCategory("");
       setCategoryMsg("Categoria aggiunta");
+      
       // refresh categories
-      if (dbId && categoriesCol) {
-        try {
-          const res = await databases.listDocuments(dbId, categoriesCol, []);
-          const list = (res.documents || []) as { $id: string; name?: unknown }[];
-          const mapped: Category[] = list.map((d) => ({ $id: d.$id, name: String(d.name ?? "") }));
-          mapped.sort((a, b) => a.name.localeCompare(b.name));
-          setCategories(mapped);
-        } catch (e) { console.error('refresh categories after add error', e); }
+      try {
+        const { data: list } = await supabase
+          .from(CATEGORIES_DB)
+          .select('*');
+        
+        const mapped: Category[] = (list || []).map((d) => ({ $id: String(d.id), name: String(d.name ?? "") }));
+        mapped.sort((a, b) => a.name.localeCompare(b.name));
+        setCategories(mapped);
+      } catch (e) { 
+        console.error('refresh categories after add error', e); 
       }
+      
       setPCategory(name);
     } catch (err) {
       console.error('addCategory error', err);
@@ -705,17 +745,27 @@ export default function AdminDashboard() {
   }
 
   async function removeCategoryById(id: string, name: string) {
-    if (!dbId || !categoriesCol) return;
     try {
-      await databases.deleteDocument(dbId, categoriesCol, id);
-      if (dbId && categoriesCol) {
-        try {
-          const res = await databases.listDocuments(dbId, categoriesCol, []);
-          const list = (res.documents || []) as { $id: string; name?: unknown }[];
-          const mapped: Category[] = list.map((d) => ({ $id: d.$id, name: String(d.name ?? "") }));
-          mapped.sort((a, b) => a.name.localeCompare(b.name));
-          setCategories(mapped);
-        } catch (e) { console.error("refresh categories after remove error", e); }
+      const { error } = await supabase
+        .from(CATEGORIES_DB)
+        .delete()
+        .eq('id', id);
+      
+      if (error) {
+        console.error('removeCategory error', error);
+        return;
+      }
+      
+      try {
+        const { data: list } = await supabase
+          .from(CATEGORIES_DB)
+          .select('*');
+        
+        const mapped: Category[] = (list || []).map((d) => ({ $id: String(d.id), name: String(d.name ?? "") }));
+        mapped.sort((a, b) => a.name.localeCompare(b.name));
+        setCategories(mapped);
+      } catch (e) { 
+        console.error("refresh categories after remove error", e); 
       }
       if (pCategory === name) setPCategory("");
       setCategoryMsg("Categoria rimossa");
@@ -752,11 +802,21 @@ export default function AdminDashboard() {
   );
 
   async function toggleProductStatus(docId: string, next: boolean) {
-    if (!dbId || !productsCol) return;
     try {
-      await databases.updateDocument(dbId, productsCol, docId, { status: next });
+      const { error } = await supabase
+        .from(PRODUCTS_DB)
+        .update({ status: next })
+        .eq('id', docId);
+      
+      if (error) {
+        console.error('Error toggling product status:', error);
+        return;
+      }
+      
       setProducts((prev) => prev.map((p) => (p.$id === docId ? { ...p, status: next } : p)));
-    } catch {}
+    } catch (e) {
+      console.error('toggleProductStatus error:', e);
+    }
   }
 
   // Editing modal
@@ -768,26 +828,51 @@ export default function AdminDashboard() {
   }
 
   async function updateField(docId: string, data: Partial<ProductDoc>) {
-    if (!dbId || !productsCol) return;
     setUpdating(true);
     try {
-      await databases.updateDocument(dbId, productsCol, docId, data as Partial<ProductDoc>);
-      setProducts((prev) => prev.map((p) => (p.$id === docId ? { ...p, ...data } : p)));
-    } catch {}
+      const { error } = await supabase
+        .from(PRODUCTS_DB)
+        .update(data)
+        .eq('id', docId);
+      
+      if (error) {
+        console.error('Error updating product:', error);
+      } else {
+        setProducts((prev) => prev.map((p) => (p.$id === docId ? { ...p, ...data } : p)));
+      }
+    } catch (e) {
+      console.error('updateField error:', e);
+    }
     setUpdating(false);
   }
 
   async function deleteProduct(doc: ProductDoc) {
-    if (!dbId || !productsCol) return;
     setUpdating(true);
     try {
-      if (bucketId) {
-        try { await storage.deleteFile(bucketId, doc.uuid); } catch {}
+      // Delete image from storage
+      try { 
+        await supabase.storage
+          .from(PRODUCTS_STORAGE)
+          .remove([doc.uuid]); 
+      } catch (e) {
+        console.error('Error deleting image:', e);
       }
-      await databases.deleteDocument(dbId, productsCol, doc.$id);
-      setProducts(prev => prev.filter(p => p.$id !== doc.$id));
-      setEditing(null);
-    } catch {}
+      
+      // Delete product from database
+      const { error } = await supabase
+        .from(PRODUCTS_DB)
+        .delete()
+        .eq('id', doc.$id);
+      
+      if (error) {
+        console.error('Error deleting product:', error);
+      } else {
+        setProducts(prev => prev.filter(p => p.$id !== doc.$id));
+        setEditing(null);
+      }
+    } catch (e) {
+      console.error('deleteProduct error:', e);
+    }
     setUpdating(false);
   }
 
@@ -1216,7 +1301,7 @@ export default function AdminDashboard() {
                                   const unit = Number(it.unitPrice ?? it.unit_price ?? it.price ?? 0);
                                   const personal = it.personalized ? String(it.personalized) : '';
                                   const isImg = personal.startsWith('/api/media/products/');
-                                  const imgSrc = bucketId && it.uuid ? String(storage.getFileView(bucketId, String(it.uuid))) : '';
+                                  const imgSrc = it.uuid ? `/api/media/products/${String(it.uuid)}` : '';
                                   return (
                                     <div key={idx} className="py-3 flex items-center justify-between">
                                       <div className="flex items-center gap-3">
@@ -1348,19 +1433,14 @@ export default function AdminDashboard() {
                       setCreateError("Immagine troppo grande (max 50MB)");
                       return;
                     }
-                    const bucketId = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_STORAGE;
-                    const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB;
-                    const productsCol = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_DB;
-                    if (!bucketId || !dbId || !productsCol) {
-                      setCreateError("Configurazione Appwrite mancante (env variables)");
-                      return;
-                    }
                     setCreating(true);
                     try {
                       // Genera UUID per prodotto (usato anche come fileId)
-                      const uuid = ID.unique();
+                      const uuid = generateId();
                       // Colors opzionali
                       const colorsArr = pColorsArr.map(c => c.slice(0, 20));
+                      // Sizes opzionali
+                      const sizesArr = pSizesArr.map(s => s.slice(0, 10));
                       // Prepara il file PNG finale (ritagliato o intero)
                       let finalBlob: Blob | null = null;
                       try {
@@ -1375,25 +1455,49 @@ export default function AdminDashboard() {
                         return;
                       }
                       const uploadFile = new File([finalBlob as Blob], `${uuid}.png`, { type: 'image/png' });
-                      await storage.createFile(bucketId, uuid, uploadFile, undefined, (prog) => {
-                        setUploadProgress(Math.round(prog.progress));
-                      });
-                      // Ottieni URL visualizzazione
-                      const imgUrl = storage.getFileView(bucketId, uuid);
-                      const img_url = String(imgUrl).slice(0, 1500);
+                      
+                      // Upload to Supabase Storage
+                      const { error: uploadError } = await supabase.storage
+                        .from(PRODUCTS_STORAGE)
+                        .upload(uuid, uploadFile, {
+                          upsert: false,
+                        });
+                      
+                      if (uploadError) {
+                        console.error('Upload error:', uploadError);
+                        setCreateError(`Errore upload immagine: ${uploadError.message}`);
+                        setCreating(false);
+                        return;
+                      }
+                      
+                      setUploadProgress(100);
+                      
+                      // URL immagine
+                      const img_url = `/api/media/products/${uuid}`;
+                      
                       // Crea documento prodotto
-                      await databases.createDocument(dbId, productsCol, ID.unique(), {
-                        name,
-                        description,
-                        price,
-                        stock: stockNum,
-                        category,
-                        uuid: uuid.slice(0, 500),
-                        img_url,
-                        status: !!pStatus,
-                        personalizable: !!pPersonalizable,
-                        colors: colorsArr,
-                      });
+                      const { error: createError } = await supabase
+                        .from(PRODUCTS_DB)
+                        .insert({
+                          name,
+                          description,
+                          price,
+                          stock: stockNum,
+                          category,
+                          uuid: uuid.slice(0, 500),
+                          img_url,
+                          status: !!pStatus,
+                          personalizable: !!pPersonalizable,
+                          colors: colorsArr,
+                          sizes: sizesArr,
+                        });
+                      
+                      if (createError) {
+                        console.error('Create product error:', createError);
+                        setCreateError(`Errore creazione prodotto: ${createError.message}`);
+                        setCreating(false);
+                        return;
+                      }
                       setCreateSuccess("Prodotto creato con successo");
                       // Reset
                       setPName("");
@@ -1408,6 +1512,8 @@ export default function AdminDashboard() {
                       setPPersonalizable(false);
                       setPColorsArr([]);
                       setPNewColor("#000000");
+                      setPSizesArr([]);
+                      setPNewSize("");
                       setShowCrop(false);
                       // Vai alla tab prodotti e ricarica
                       await fetchProducts();
@@ -1518,6 +1624,88 @@ export default function AdminDashboard() {
                         </div>
                       ) : null}
                       <p className="text-xs text-gray-500 mt-2">Puoi aggiungere fino a 20 colori. Usa il picker per selezionarli rapidamente.</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Taglie (opzionale)</label>
+                      <div className="space-y-3">
+                        {/* Taglie predefinite */}
+                        <div>
+                          <p className="text-xs text-gray-600 mb-2">Taglie standard:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {['XS', 'S', 'M', 'L', 'XL'].map((size) => (
+                              <button
+                                key={size}
+                                type="button"
+                                className={`px-4 py-2 rounded-full border-2 text-sm font-medium transition-colors ${
+                                  pSizesArr.includes(size)
+                                    ? 'bg-purple-600 text-white border-purple-600'
+                                    : 'bg-white text-gray-700 border-gray-300 hover:border-purple-400'
+                                }`}
+                                onClick={() => {
+                                  if (pSizesArr.includes(size)) {
+                                    setPSizesArr((prev) => prev.filter((s) => s !== size));
+                                  } else {
+                                    setPSizesArr((prev) => [...prev, size]);
+                                  }
+                                }}
+                              >
+                                {size}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {/* Taglie numeriche personalizzate */}
+                        <div>
+                          <p className="text-xs text-gray-600 mb-2">Aggiungi numeri (es. 38, 40, 42):</p>
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="text"
+                              value={pNewSize}
+                              onChange={(e) => setPNewSize(e.target.value)}
+                              placeholder="Es. 38"
+                              className="h-10 px-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-600 focus:border-purple-600 text-gray-900 w-24"
+                              maxLength={10}
+                            />
+                            <Button
+                              type="button"
+                              className="rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white"
+                              onClick={() => {
+                                const s = pNewSize.trim();
+                                if (!s) return;
+                                if (pSizesArr.includes(s)) return;
+                                setPSizesArr((prev) => [...prev, s]);
+                                setPNewSize("");
+                              }}
+                            >
+                              Aggiungi
+                            </Button>
+                          </div>
+                        </div>
+                        {/* Taglie aggiunte */}
+                        {pSizesArr.length > 0 ? (
+                          <div>
+                            <p className="text-xs text-gray-600 mb-2">Taglie selezionate:</p>
+                            <div className="flex flex-wrap gap-2">
+                              {pSizesArr.map((s, idx) => (
+                                <span
+                                  key={idx}
+                                  className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-gray-300 bg-gray-50"
+                                >
+                                  <span className="text-sm font-medium text-gray-900">{s}</span>
+                                  <button
+                                    type="button"
+                                    className="text-gray-500 hover:text-red-600 font-bold text-lg leading-none"
+                                    onClick={() => setPSizesArr((prev) => prev.filter((x) => x !== s))}
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">Seleziona taglie standard e/o aggiungi numeri personalizzati.</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Immagine</label>
@@ -1696,26 +1884,47 @@ export default function AdminDashboard() {
             setEditing((prev) => prev ? { ...prev, ...data } : prev);
           }}
           onUpdateImage={async (file: File, onProgress?: (n: number) => void) => {
-            if (!editing || !dbId || !productsCol) return;
+            if (!editing) return;
             // Validate PNG and size
             if (file.type !== 'image/png') return;
             if (file.size > 50 * 1024 * 1024) return;
-            const bucketId = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_STORAGE as string | undefined;
-            if (!bucketId) return;
+            
             try {
               // 1) Elimina il file corrente (se esiste)
-              try { await storage.deleteFile(bucketId, editing.uuid); } catch {}
-              // 2) Crea il nuovo file con lo stesso uuid
+              try { 
+                await supabase.storage
+                  .from(PRODUCTS_STORAGE)
+                  .remove([editing.uuid]); 
+              } catch (e) {
+                console.error('Error deleting old image:', e);
+              }
+              
+              // 2) Carica il nuovo file con lo stesso uuid
               const renamed = new File([file], `${editing.uuid}.png`, { type: 'image/png' });
-              await storage.createFile({ bucketId, fileId: editing.uuid, file: renamed, onProgress: (p) => onProgress?.(Math.round(p.progress)) });
-              // 3) Costruisci URL canonicale e attendi disponibilità
-              const newUrl = storage.getFileView(bucketId, editing.uuid);
+              const { error: uploadError } = await supabase.storage
+                .from(PRODUCTS_STORAGE)
+                .upload(editing.uuid, renamed, {
+                  upsert: true,
+                });
+              
+              if (uploadError) {
+                console.error('Upload error:', uploadError);
+                return;
+              }
+              
+              if (onProgress) onProgress(100);
+              
+              // 3) Costruisci URL canonicale
+              const newUrl = `/api/media/products/${editing.uuid}`;
               await waitForImageReachable(newUrl);
+              
               // 4) Aggiorna il documento
               await updateField(editing.$id, { img_url: newUrl });
               setEditing((prev) => prev ? { ...prev, img_url: newUrl } : prev);
               bumpImageVersion(editing.uuid);
-            } catch {}
+            } catch (e) {
+              console.error('Error updating image:', e);
+            }
           }}
           onDelete={async () => { if (editing) await deleteProduct(editing); }}
         />
@@ -1884,6 +2093,8 @@ function EditProductModal({ p, onClose, onUpdate, onUpdateImage, onDelete, busy 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [colors, setColors] = useState<string[]>(Array.isArray(p?.colors) ? p.colors : []);
   const [newColor, setNewColor] = useState<string>("#000000");
+  const [sizes, setSizes] = useState<string[]>(Array.isArray(p?.sizes) ? p.sizes : []);
+  const [newSize, setNewSize] = useState<string>("");
 
   async function getCroppedBlob(imageSrc: string, cropPx: { x: number; y: number; width: number; height: number } | null): Promise<Blob> {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -1996,6 +2207,97 @@ function EditProductModal({ p, onClose, onUpdate, onUpdateImage, onDelete, busy 
                     </div>
                   ) : null}
                   <p className="text-xs text-gray-500">Puoi aggiungere fino a 20 colori. Usa il picker per selezionarli rapidamente.</p>
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Taglie (opzionale)</label>
+                  <div className="space-y-3">
+                    {/* Taglie predefinite */}
+                    <div>
+                      <p className="text-xs text-gray-600 mb-2">Taglie standard:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {['XS', 'S', 'M', 'L', 'XL'].map((size) => (
+                          <button
+                            key={size}
+                            type="button"
+                            className={`px-3 py-1 rounded-full border-2 text-sm font-medium transition-colors ${
+                              sizes.includes(size)
+                                ? 'bg-purple-600 text-white border-purple-600'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-purple-400'
+                            }`}
+                            onClick={() => {
+                              if (sizes.includes(size)) {
+                                setSizes((prev) => prev.filter((s) => s !== size));
+                              } else {
+                                setSizes((prev) => [...prev, size]);
+                              }
+                            }}
+                          >
+                            {size}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {/* Taglie numeriche personalizzate */}
+                    <div>
+                      <p className="text-xs text-gray-600 mb-2">Aggiungi numeri:</p>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="text"
+                          value={newSize}
+                          onChange={(e) => setNewSize(e.target.value)}
+                          placeholder="Es. 38"
+                          className="h-9 px-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-600 text-gray-900 w-24"
+                          maxLength={10}
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white"
+                          onClick={() => {
+                            const s = newSize.trim();
+                            if (!s) return;
+                            if (sizes.includes(s)) return;
+                            setSizes((prev) => [...prev, s]);
+                            setNewSize("");
+                          }}
+                        >
+                          Aggiungi
+                        </Button>
+                        <Button 
+                          size="sm"
+                          isDisabled={busy} 
+                          onClick={() => onUpdate({ sizes })} 
+                          className="h-9 px-4 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold"
+                        >
+                          Aggiorna taglie
+                        </Button>
+                      </div>
+                    </div>
+                    {/* Taglie aggiunte */}
+                    {sizes.length > 0 ? (
+                      <div>
+                        <p className="text-xs text-gray-600 mb-2">Taglie selezionate:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {sizes.map((s, idx) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-gray-300 bg-gray-50"
+                            >
+                              <span className="text-sm font-medium text-gray-900">{s}</span>
+                              <button
+                                type="button"
+                                className="text-gray-500 hover:text-red-600 font-bold"
+                                onClick={() => setSizes((prev) => prev.filter((x) => x !== s))}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-gray-500">Seleziona taglie standard e/o aggiungi numeri personalizzati.</p>
                 </div>
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex-1">

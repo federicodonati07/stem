@@ -102,10 +102,47 @@ const AdminDashboard = () => {
   const formatEuro = (cents: number) =>
     new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cents / 100);
 
+  // Build last 30 days window
+  const last30Days = React.useMemo(() => {
+    const days: string[] = [];
+    const now = new Date();
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(now.getDate() - i);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      days.push(`${y}-${m}-${day}`);
+    }
+    return days;
+  }, []);
+
+  // Compute Orders and Revenue series (daily) from loaded orders
+  const { ordersSeries, revenueSeries, ordersTotalCount, revenueTotalCents } = React.useMemo(() => {
+    const countByDate = new Map<string, number>();
+    const revenueByDate = new Map<string, number>();
+    let totalCount = 0;
+    let totalRevenue = 0;
+    for (const o of orders) {
+      const day = o.date || o.createdAt?.slice(0, 10) || '';
+      if (!day) continue;
+      countByDate.set(day, (countByDate.get(day) || 0) + 1);
+      totalCount += 1;
+      // Revenue: consider only paid transactions
+      if (o?.payment?.status === 'paid') {
+        revenueByDate.set(day, (revenueByDate.get(day) || 0) + (o?.totals?.total || 0));
+        totalRevenue += (o?.totals?.total || 0);
+      }
+    }
+    const ordersSeries = last30Days.map((d) => ({ date: d, count: countByDate.get(d) || 0 }));
+    const revenueSeries = last30Days.map((d) => ({ date: d, amount: revenueByDate.get(d) || 0 }));
+    return { ordersSeries, revenueSeries, ordersTotalCount: totalCount, revenueTotalCents: totalRevenue };
+  }, [orders, last30Days]);
+
   const stats = [
     {
       title: 'Ordini totali',
-      value: '1,234',
+      value: String(ordersTotalCount || 0),
       change: '+12%',
       icon: Package,
       color: 'blue'
@@ -119,7 +156,7 @@ const AdminDashboard = () => {
     },
     {
       title: 'Ricavi',
-      value: '€12,456',
+      value: formatEuro(revenueTotalCents || 0),
       change: '+15%',
       icon: DollarSign,
       color: 'purple'
@@ -163,13 +200,25 @@ const AdminDashboard = () => {
         if (!res.ok) return;
         const data = await res.json();
         if (cancelled) return;
-        setUsersSeries(Array.isArray(data?.series) ? data.series : []);
+        const raw = Array.isArray(data?.series) ? data.series as Array<{ date: string; count: number }> : [];
+        // Build cumulative over last30Days to ensure non-decreasing series
+        const byDate = new Map<string, number>();
+        for (const s of raw) {
+          const d = String(s.date).slice(0, 10);
+          byDate.set(d, (byDate.get(d) || 0) + Number(s.count || 0));
+        }
+        let running = 0;
+        const cumulative = last30Days.map((d) => {
+          running += byDate.get(d) || 0;
+          return { date: d, count: running };
+        });
+        setUsersSeries(cumulative);
         setUsersGrowth(typeof data?.growthPct === 'number' ? data.growthPct : 0);
       } catch {}
     };
     run();
     return () => { cancelled = true; };
-  }, []);
+  }, [last30Days]);
 
   // Fetch orders with search
   React.useEffect(() => {
@@ -447,7 +496,18 @@ const AdminDashboard = () => {
 
   const UsersChart = ({ series }: { series: Array<{ date: string; count: number }> }) => {
     if (!series.length) return <div className="h-16" />;
-    const data = series.map((s) => ({ date: s.date.slice(5), value: s.count }));
+    // Normalizza in mappa per data (YYYY-MM-DD)
+    const countsByDate = new Map<string, number>();
+    for (const s of series) {
+      const day = String(s.date).slice(0, 10);
+      countsByDate.set(day, (countsByDate.get(day) || 0) + Number(s.count || 0));
+    }
+    // Serie ultimi 30 giorni con cumulative running
+    let running = 0;
+    const data = last30Days.map((d) => {
+      running += countsByDate.get(d) || 0;
+      return { date: d.slice(5), value: running };
+    });
     return (
       <div className="mt-2">
         <div className="h-16 w-full">
@@ -467,6 +527,76 @@ const AdminDashboard = () => {
                 labelFormatter={(label: string) => `Giorno: ${label}`}
               />
               <Area type="monotone" dataKey="value" stroke="#16a34a" fill="url(#usersGradient)" strokeWidth={2} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+        <p className="text-[11px] text-gray-500">Ultimi 30 giorni</p>
+      </div>
+    );
+  };
+
+  const OrdersChart = ({ series }: { series: Array<{ date: string; count: number }> }) => {
+    if (!series.length) return <div className="h-16" />;
+    const sorted = [...series].sort((a, b) => a.date.localeCompare(b.date));
+    let running = 0;
+    const data = sorted.map((s) => {
+      running += Number(s.count || 0);
+      return { date: s.date.slice(5), value: running };
+    });
+    return (
+      <div className="mt-2">
+        <div className="h-16 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data} margin={{ left: 0, right: 0, top: 4, bottom: 0 }}>
+              <defs>
+                <linearGradient id="ordersGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#2563eb" stopOpacity={0.25} />
+                  <stop offset="100%" stopColor="#2563eb" stopOpacity={0.05} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="date" hide />
+              <YAxis hide />
+              <Tooltip
+                cursor={{ stroke: '#94a3b8', strokeDasharray: '3 3' }}
+                formatter={(value: number) => [String(value), 'Ordini cumulati']}
+                labelFormatter={(label: string) => `Giorno: ${label}`}
+              />
+              <Area type="monotone" dataKey="value" stroke="#2563eb" fill="url(#ordersGradient)" strokeWidth={2} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+        <p className="text-[11px] text-gray-500">Ultimi 30 giorni</p>
+      </div>
+    );
+  };
+
+  const RevenueChart = ({ series }: { series: Array<{ date: string; amount: number }> }) => {
+    if (!series.length) return <div className="h-16" />;
+    const sorted = [...series].sort((a, b) => a.date.localeCompare(b.date));
+    let running = 0;
+    const data = sorted.map((s) => {
+      running += Number(s.amount || 0);
+      return { date: s.date.slice(5), value: running / 100 };
+    });
+    return (
+      <div className="mt-2">
+        <div className="h-16 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data} margin={{ left: 0, right: 0, top: 4, bottom: 0 }}>
+              <defs>
+                <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.25} />
+                  <stop offset="100%" stopColor="#7c3aed" stopOpacity={0.05} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="date" hide />
+              <YAxis hide />
+              <Tooltip
+                cursor={{ stroke: '#94a3b8', strokeDasharray: '3 3' }}
+                formatter={(value: number) => [new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(value), 'Ricavi cumulati']}
+                labelFormatter={(label: string) => `Giorno: ${label}`}
+              />
+              <Area type="monotone" dataKey="value" stroke="#7c3aed" fill="url(#revenueGradient)" strokeWidth={2} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -583,6 +713,12 @@ const AdminDashboard = () => {
                   </div>
                   {stat.title === 'Utenti registrati' && (
                     <UsersChart series={usersSeries} />
+                  )}
+                  {stat.title === 'Ordini totali' && (
+                    <OrdersChart series={ordersSeries} />
+                  )}
+                  {stat.title === 'Ricavi' && (
+                    <RevenueChart series={revenueSeries} />
                   )}
                 </CardBody>
               </Card>

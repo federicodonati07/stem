@@ -1,69 +1,73 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_PROJECT_URL!;
+const supabaseKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_API_KEY_RSL!;
+const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
+
+const PRODUCTS_DB = process.env.NEXT_PUBLIC_SUPABASE_PRODUCTS_DB || "products";
 
 export async function POST(req: NextRequest) {
   try {
-    const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-    const apiKey = process.env.NEXT_PUBLIC_APPWRITE_API_KEY;
-    const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB;
-    const productsCol = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_DB;
-    if (!endpoint || !projectId || !apiKey || !dbId || !productsCol) {
-      return NextResponse.json(
-        { error: "Missing Appwrite configuration" },
-        { status: 500 }
-      );
-    }
     const body = await req.json().catch(() => ({}));
     const dec: Record<string, number> = body?.dec || {};
     const uuids = Object.keys(dec).filter((u) => u);
-    if (uuids.length === 0) return NextResponse.json({ ok: true, updated: 0 });
 
-    const base = endpoint.replace(/\/$/, "");
+    if (uuids.length === 0) {
+      return NextResponse.json({ ok: true, updated: 0 });
+    }
+
     let updated = 0;
+
     for (const u of uuids) {
       try {
-        // Fetch product by uuid (limit 1)
-        const query = encodeURIComponent(`equal(\"uuid\", [\"${u}\"])`);
-        const listUrl = `${base}/databases/${dbId}/collections/${productsCol}/documents?queries[]=${query}&limit=1`;
-        const listRes = await fetch(listUrl, {
-          method: "GET",
-          headers: {
-            "X-Appwrite-Project": projectId,
-            "X-Appwrite-Key": apiKey,
-          },
-          cache: "no-store",
-        });
-        if (!listRes.ok) continue;
-        const data = await listRes.json();
-        const doc = Array.isArray(data?.documents) && data.documents[0];
-        if (!doc) continue;
-        const current = Number(doc.stock || 0);
+        // Fetch product by uuid
+        const { data: product, error: fetchError } = await supabaseAdmin
+          .from(PRODUCTS_DB)
+          .select("id, stock")
+          .eq("uuid", u)
+          .maybeSingle();
+
+        if (fetchError || !product) continue;
+
+        const current = Number(product.stock || 0);
         const delta = Number(dec[u] || 0);
-        if (!Number.isFinite(current) || !Number.isFinite(delta) || delta <= 0)
+
+        if (
+          !Number.isFinite(current) ||
+          !Number.isFinite(delta) ||
+          delta <= 0
+        ) {
           continue;
+        }
+
         const next = Math.max(0, current - delta);
+
         if (next === current) continue;
-        const upRes = await fetch(
-          `${base}/databases/${dbId}/collections/${productsCol}/documents/${doc.$id}`,
-          {
-            method: "PATCH",
-            headers: {
-              "X-Appwrite-Project": projectId,
-              "X-Appwrite-Key": apiKey,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ stock: next }),
-          }
-        );
-        if (upRes.ok) updated += 1;
-      } catch {}
+
+        // Update stock
+        const { error: updateError } = await supabaseAdmin
+          .from(PRODUCTS_DB)
+          .update({ stock: next })
+          .eq("id", product.id);
+
+        if (!updateError) {
+          updated += 1;
+        }
+      } catch (e) {
+        console.error("Error updating stock for", u, e);
+      }
     }
+
     return NextResponse.json({ ok: true, updated, processed: uuids.length });
   } catch (e) {
     const message =
       typeof (e as { message?: unknown })?.message === "string"
         ? (e as { message: string }).message
         : "Unexpected error";
+    console.error("commit-stock error:", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

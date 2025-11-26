@@ -1,4 +1,12 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+// Use service role for admin operations
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_PROJECT_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_API_KEY_RSL!
+);
 
 function formatDate(date: Date) {
   const y = date.getFullYear();
@@ -9,47 +17,37 @@ function formatDate(date: Date) {
 
 export async function GET() {
   try {
-    const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-    const apiKey =
-      process.env.NEXT_APPWRITE_API_KEY ||
-      process.env.APPWRITE_API_KEY ||
-      process.env.NEXT_PUBLIC_APPWRITE_API_KEY;
+    // Fetch users (Supabase auth admin API doesn't support large pagination easily)
+    // For now, fetch up to 1000 users (adjust perPage as needed)
+    let allUsers: Array<{ created_at?: string }> = [];
+    let page = 1;
+    const perPage = 1000;
 
-    if (!endpoint || !projectId || !apiKey) {
-      return NextResponse.json(
-        { error: "Missing Appwrite configuration" },
-        { status: 500 }
+    while (true) {
+      const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+        page,
+        perPage,
+      });
+
+      if (error) {
+        console.error("Error fetching users:", error);
+        break;
+      }
+
+      if (!data || !data.users || data.users.length === 0) break;
+
+      allUsers = allUsers.concat(
+        data.users.map((u) => ({ created_at: u.created_at }))
       );
+
+      // If we got less than perPage, we've reached the end
+      if (data.users.length < perPage) break;
+
+      page++;
+
+      // Safety limit: max 10 pages (10000 users)
+      if (page > 10) break;
     }
-
-    // Fetch up to 1000 users (no ordering to avoid 400)
-    const base = endpoint.replace(/\/$/, "");
-    const url = new URL(`${base}/users`);
-    url.searchParams.set("limit", "1000");
-
-    const res = await fetch(url.toString(), {
-      method: "GET",
-      headers: {
-        "X-Appwrite-Project": projectId,
-        "X-Appwrite-Key": apiKey,
-        "Content-Type": "application/json",
-      },
-      cache: "no-store",
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      return NextResponse.json(
-        { error: "Failed to fetch users", details: text },
-        { status: res.status }
-      );
-    }
-
-    const data = await res.json();
-    const users: Array<{ $createdAt?: string }> = Array.isArray(data?.users)
-      ? data.users
-      : [];
 
     // Build day buckets for last 60 days
     const today = new Date();
@@ -61,8 +59,8 @@ export async function GET() {
       map[formatDate(d)] = 0;
     }
 
-    for (const u of users) {
-      const created = u.$createdAt ? new Date(u.$createdAt) : null;
+    for (const u of allUsers) {
+      const created = u.created_at ? new Date(u.created_at) : null;
       if (!created) continue;
       const key = formatDate(created);
       if (key in map) map[key] += 1;
@@ -93,6 +91,7 @@ export async function GET() {
       growthPct,
     });
   } catch (err) {
+    console.error("Unexpected error:", err);
     return NextResponse.json({ error: "Unexpected error" }, { status: 500 });
   }
 }

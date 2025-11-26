@@ -10,8 +10,8 @@
   },
   "dependencies": {
     "@heroui/react": "^2.8.5",
+    "@supabase/supabase-js": "^2.86.0",
     "@types/google.maps": "^3.58.1",
-    "appwrite": "^20.1.0",
     "country-region-data": "^3.1.0",
     "country-state-city": "^3.2.1",
     "framer-motion": "^12.23.22",

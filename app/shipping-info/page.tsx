@@ -11,7 +11,7 @@ import "react-phone-input-2/lib/style.css";
 import Script from "next/script";
 import usePlacesAutocomplete, { getGeocode } from "use-places-autocomplete";
 import { State } from "country-state-city";
-import { databases, account, ID, Query } from "../components/auth/appwriteClient";
+import { supabase, USER_COLLECTION } from "../components/auth/supabaseClient";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
@@ -264,54 +264,82 @@ export default function ShippingInfoPage() {
   };
 
   async function ensureDocId(): Promise<string> {
-    const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB!;
-    const colId = process.env.NEXT_PUBLIC_APPWRITE_USER_COLLECTION!;
-    const uid = user?.$id || (await account.get()).$id;
-    const res = await databases.listDocuments(dbId, colId, [Query.equal("uuid", uid)]);
-    if (res.total > 0) return res.documents[0].$id as string;
+    const uid = user?.$id;
+    if (!uid) throw new Error('User not authenticated');
+    
+    const { data: existing, error: fetchError } = await supabase
+      .from(USER_COLLECTION)
+      .select('id')
+      .eq('uuid', uid)
+      .maybeSingle();
+    
+    if (fetchError) {
+      console.error('Error fetching user_info:', fetchError);
+      throw fetchError;
+    }
+    
+    if (existing) return existing.id.toString();
+    
     // create minimal using current form snapshot
-    const created = await databases.createDocument(dbId, colId, ID.unique(), {
-      uuid: uid,
-      name_surname: (form.name_surname || "").slice(0, 50),
-      phone_number: (form.phone_number || "").slice(0, 16),
-      street_address: (form.street_address || "").slice(0, 150),
-      apartment_number: (form.apartment_number || "").slice(0, 10),
-      nation: (form.nation || "").slice(0, 50),
-      state: (form.state || "").slice(0, 50),
-      postal_code: String(form.postal_code || "").slice(0, 20),
-      shipping_info: isAllValid(form),
-    });
-    return created.$id as string;
+    const { data: created, error: createError } = await supabase
+      .from(USER_COLLECTION)
+      .insert({
+        uuid: uid,
+        name_surname: (form.name_surname || "").slice(0, 50),
+        phone_number: (form.phone_number || "").slice(0, 16),
+        street_address: (form.street_address || "").slice(0, 150),
+        apartment_number: (form.apartment_number || "").slice(0, 10),
+        nation: (form.nation || "").slice(0, 50),
+        state: (form.state || "").slice(0, 50),
+        postal_code: String(form.postal_code || "").slice(0, 20),
+        shipping_info: isAllValid(form),
+      })
+      .select('id')
+      .single();
+    
+    if (createError) {
+      console.error('Error creating user_info:', createError);
+      throw createError;
+    }
+    
+    return created.id.toString();
   }
 
   async function updateSingleField(name: string, value: string) {
     const fieldError = validateField(name, value);
     if (fieldError) throw new Error(fieldError);
-    const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB!;
-    const colId = process.env.NEXT_PUBLIC_APPWRITE_USER_COLLECTION!;
     const id = await ensureDocId();
     const next = { ...form, [name]: value } as Record<string, string>;
     const shippingOk = isAllValid(next as typeof form);
-    const payload: Record<string, string | boolean> = { shipping_info: shippingOk } as unknown as Record<string, string | boolean>;
+    const payload: Record<string, string | boolean> = { shipping_info: shippingOk };
     (payload as Record<string, string>)[name] = value.slice(0, 20);
-    await databases.updateDocument(dbId, colId, id, payload);
+    
+    const { error: updateError } = await supabase
+      .from(USER_COLLECTION)
+      .update(payload)
+      .eq('id', id);
+    
+    if (updateError) {
+      console.error('Error updating field:', updateError);
+      throw updateError;
+    }
   }
 
   async function upsertUserInfo(payload: Record<string, unknown>) {
-    const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB!;
-    const colId = process.env.NEXT_PUBLIC_APPWRITE_USER_COLLECTION!;
     let docId = (userInfo as unknown as { $id?: string })?.$id;
     let userId = user?.$id;
-    if (!docId) {
+    
+    if (!docId && userId) {
       try {
-        if (!userId) {
-          const u = await account.get();
-          userId = u.$id;
-        }
-        const res = await databases.listDocuments(dbId, colId, [Query.equal("uuid", userId!)]);
-        if (res.total > 0) docId = res.documents[0].$id;
+        const { data: existing } = await supabase
+          .from(USER_COLLECTION)
+          .select('id')
+          .eq('uuid', userId)
+          .maybeSingle();
+        if (existing) docId = existing.id.toString();
       } catch {}
     }
+    
     const data = {
       name_surname: String(payload.name_surname || "").slice(0, 50),
       phone_number: String(payload.phone_number || "").slice(0, 16),
@@ -322,15 +350,35 @@ export default function ShippingInfoPage() {
       postal_code: String(payload.postal_code || "").slice(0, 20),
       shipping_info: Boolean(payload.shipping_info),
     };
+    
     if (docId) {
-      return databases.updateDocument(dbId, colId, docId, data);
+      const { error: updateError } = await supabase
+        .from(USER_COLLECTION)
+        .update(data)
+        .eq('id', docId);
+      
+      if (updateError) {
+        console.error('Error updating user_info:', updateError);
+        throw updateError;
+      }
+      return;
     }
+    
     // create if not exists
-    const uid = userId || (await account.get()).$id;
-    return databases.createDocument(dbId, colId, ID.unique(), {
-      ...data,
-      uuid: uid,
-    });
+    const uid = userId;
+    if (!uid) throw new Error('User ID not found');
+    
+    const { error: createError } = await supabase
+      .from(USER_COLLECTION)
+      .insert({
+        ...data,
+        uuid: uid,
+      });
+    
+    if (createError) {
+      console.error('Error creating user_info:', createError);
+      throw createError;
+    }
   }
 
   // OSM autocomplete

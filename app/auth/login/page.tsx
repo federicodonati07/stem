@@ -3,61 +3,77 @@
 import React from 'react';
 import AuthLayout from '../../components/auth/AuthLayout';
 import GoogleAuthButton from '../../components/auth/GoogleAuthButton';
-import { account, client, databases, ID, Query } from '../../components/auth/appwriteClient';
+import { supabase, USER_COLLECTION } from '../../components/auth/supabaseClient';
 import { useRouter } from 'next/navigation';
-import { OAuthProvider } from 'appwrite';
 
 export default function LoginPage() {
   const router = useRouter();
   const [processing, setProcessing] = React.useState(false);
 
   async function handleGoogleLogin() {
-    // 1. Avvia OAuth Google
-    account.createOAuth2Session(
-      OAuthProvider.Google,
-      window.location.origin + "/auth/login?oauth=1", // redirect dopo login
-      window.location.origin + "/auth/login?error=1" // redirect dopo errore
-
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/login?oauth=1`,
+        }
+      });
       
-    );
-    console.log(window.location.origin)
+      if (error) {
+        console.error('OAuth error:', error);
+      }
+    } catch (error) {
+      console.error('Error initiating Google login:', error);
+    }
   }
 
-  // 2. Dopo redirect: passa a JWT lato client, crea user_info se manca e reindirizza
+  // Handle OAuth callback
   React.useEffect(() => {
     const url = new URL(window.location.href);
     if (url.searchParams.get("oauth") === "1" && !processing) {
       setProcessing(true);
 
       const processingKey = `processing_${Date.now()}`;
-      localStorage.setItem('user_info_processing', processingKey);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('user_info_processing', processingKey);
+      }
 
       (async () => {
         try {
-          // Verifica sessione lato cookie (una volta)
-          const user = await account.get();
+          // Get the current user
+          const { data: { user }, error: userError } = await supabase.auth.getUser();
+          
+          if (userError || !user) {
+            console.error("Error getting user:", userError);
+            if (typeof window !== 'undefined') {
+              localStorage.removeItem('user_info_processing');
+            }
+            setProcessing(false);
+            return;
+          }
 
-          // Crea JWT e passa ad header Authorization (no cookie)
-          const jwtRes = await account.createJWT();
-          client.setJWT(jwtRes.jwt);
-          try { localStorage.setItem('appwrite_jwt', jwtRes.jwt); } catch {}
-
-          // Crea user_info minimale se assente
-          const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB!;
-          const colId = process.env.NEXT_PUBLIC_APPWRITE_USER_COLLECTION!;
-
-          const currentProcessing = localStorage.getItem('user_info_processing');
+          // Check if user_info exists
+          const currentProcessing = typeof window !== 'undefined' ? localStorage.getItem('user_info_processing') : null;
+          
           if (currentProcessing === processingKey) {
-            const res = await databases.listDocuments(dbId, colId, [
-              Query.equal("uuid", user.$id)
-            ]);
-            if (res.total === 0) {
-              await databases.createDocument(
-                dbId,
-                colId,
-                ID.unique(),
-                {
-                  uuid: user.$id,
+            const { data: existingUserInfo, error: fetchError } = await supabase
+              .from(USER_COLLECTION)
+              .select('*')
+              .eq('uuid', user.id)
+              .maybeSingle();
+            
+            if (fetchError) {
+              console.error("Error fetching user_info:", fetchError);
+            }
+            
+            // Create user_info if it doesn't exist
+            if (!existingUserInfo) {
+              const { error: createError } = await supabase
+                .from(USER_COLLECTION)
+                .insert({
+                  uuid: user.id,
+                  name: user.user_metadata?.name || user.email?.split('@')[0] || '',
+                  email: user.email || '',
                   phone_number: null,
                   street_address: null,
                   apartment_number: null,
@@ -65,19 +81,26 @@ export default function LoginPage() {
                   state: null,
                   postal_code: null,
                   shipping_info: null,
-                }
-              );
+                });
+              
+              if (createError) {
+                console.error("Error creating user_info:", createError);
+              }
             }
           }
 
-          // Pulisci flag
-          localStorage.removeItem('user_info_processing');
+          // Clear processing flag
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('user_info_processing');
+          }
 
-          // Vai alla home
+          // Redirect to home
           router.replace("/");
         } catch (err) {
-          console.error("Errore durante il login:", err);
-          localStorage.removeItem('user_info_processing');
+          console.error("Error during login:", err);
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('user_info_processing');
+          }
           setProcessing(false);
         }
       })();

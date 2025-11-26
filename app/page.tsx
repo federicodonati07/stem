@@ -1,7 +1,7 @@
 "use client";
 import { useAccount } from "./components/AccountContext";
 import { useEffect, useState } from "react";
-import { databases, Query } from "./components/auth/appwriteClient";
+import { supabase, ORDERS_DB } from "./components/auth/supabaseClient";
 import Header from './components/Header';
 import Hero from './components/Hero';
 import ProductGrid from './components/ProductGrid';
@@ -27,18 +27,26 @@ export default function HomePage() {
     }
     
     // Pulisci il flag di processing se presente
-    localStorage.removeItem('user_info_processing');
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('user_info_processing');
+    }
   }, []);
 
   useEffect(() => {
     (async () => {
       try {
         if (!isAdmin) { setPendingCount(0); return; }
-        const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB as string | undefined;
-        const ordersCol = process.env.NEXT_PUBLIC_APPWRITE_ORDERS_DB as string | undefined;
-        if (!dbId || !ordersCol) { setPendingCount(0); return; }
-        const res = await databases.listDocuments(dbId, ordersCol, [Query.equal('status', 'pagato'), Query.limit(1)]);
-        setPendingCount(Number(res.total || 0));
+        const { count, error } = await supabase
+          .from(ORDERS_DB)
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'pagato');
+        
+        if (error) {
+          console.error('Error fetching orders count:', error);
+          setPendingCount(0);
+        } else {
+          setPendingCount(count || 0);
+        }
       } catch {
         setPendingCount(0);
       }

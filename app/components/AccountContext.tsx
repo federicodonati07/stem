@@ -1,7 +1,8 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { account, databases, createUserInfo, Query, teams, client } from "./auth/appwriteClient";
+import { supabase, USER_COLLECTION, ADMINS_DB, createUserInfo } from "./auth/supabaseClient";
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 export interface User {
   $id: string;
@@ -9,7 +10,6 @@ export interface User {
   email: string;
   emailVerification: boolean;
   prefs: Record<string, unknown>;
-  // puoi aggiungere altri campi se vuoi
 }
 
 export interface UserInfo {
@@ -24,7 +24,7 @@ export interface UserInfo {
   state: string;
   postal_code: string | null;
   shipping_info: boolean;
-  name_surname: string | null
+  name_surname: string | null;
 }
 
 interface AccountContextType {
@@ -56,45 +56,50 @@ export const AccountProvider = ({ children }: { children: React.ReactNode }) => 
   const fetchUser = async () => {
     setLoading(true);
     try {
-      const res = await account.get();
-      setUser(res as User);
+      // Get current user from Supabase
+      const { data: { user: supabaseUser }, error: userError } = await supabase.auth.getUser();
       
-      // Controlla se l'utente è admin
+      if (userError || !supabaseUser) {
+        setUser(null);
+        setUserInfo(null);
+        setIsAdmin(false);
+        setLoading(false);
+        return;
+      }
+
+      // Transform Supabase user to our User interface
+      const transformedUser: User = {
+        $id: supabaseUser.id,
+        name: supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || '',
+        email: supabaseUser.email || '',
+        emailVerification: supabaseUser.email_confirmed_at !== null,
+        prefs: supabaseUser.user_metadata || {},
+      };
+      
+      setUser(transformedUser);
+      
+      // Check if user is admin by querying the admins table
       try {
-        const teamId = process.env.NEXT_PUBLIC_APPWRITE_ADMIN_TEAM_ID || "admins";
-        console.log("Controllo admin - Team ID:", teamId);
+        const { data: adminRecord, error: adminError } = await supabase
+          .from(ADMINS_DB)
+          .select('user_uuid')
+          .eq('user_uuid', supabaseUser.id)
+          .maybeSingle();
         
-        // Metodo 1: Usa getMembership per ottenere la membership dell'utente corrente
-        try {
-          const userMembership = await teams.getMembership(teamId, 'current');
-          const isUserAdmin = userMembership.roles.includes("admin");
-          console.log("Membership utente:", userMembership);
-          console.log("È admin (metodo 1):", isUserAdmin);
-          setIsAdmin(isUserAdmin);
-        } catch (membershipError) {
-          console.log("Errore getMemberships, provo metodo alternativo:", membershipError);
-          
-          // Metodo 2: Prova a ottenere la membership specifica del team
-          try {
-            const teamMemberships = await teams.listMemberships(teamId);
-            const isUserAdmin = teamMemberships.memberships.some(membership => 
-              membership.userId === res.$id && membership.roles.includes("admin")
-            );
-            console.log("Team memberships:", teamMemberships.memberships);
-            console.log("È admin (metodo 2):", isUserAdmin);
-            setIsAdmin(isUserAdmin);
-          } catch (listError) {
-            console.log("Errore anche con listMemberships:", listError);
-            setIsAdmin(false);
-          }
+        if (adminError) {
+          console.error('Error checking admin status:', adminError);
+          setIsAdmin(false);
+        } else {
+          // User is admin if a record exists in the admins table
+          setIsAdmin(!!adminRecord);
         }
-      } catch (teamError) {
-        console.log("Errore generale nel controllo admin:", teamError);
+      } catch (adminCheckError) {
+        console.error('Error in admin check:', adminCheckError);
         setIsAdmin(false);
       }
       
-      // Controlla se c'è un processo di creazione user_info in corso
-      const isProcessing = localStorage.getItem('user_info_processing');
+      // Check if there's a processing flag
+      const isProcessing = typeof window !== 'undefined' ? localStorage.getItem('user_info_processing') : null;
       if (isProcessing) {
         console.log("Processo user_info in corso, skip fetch");
         setUserInfo(null);
@@ -102,20 +107,38 @@ export const AccountProvider = ({ children }: { children: React.ReactNode }) => 
         return;
       }
       
-      // Fetch user_info
-      const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB!;
-      const colId = process.env.NEXT_PUBLIC_APPWRITE_USER_COLLECTION!;
-      const infoRes = await databases.listDocuments(dbId, colId, [
-        Query.equal("uuid", res.$id)
-      ]);
-      if (infoRes.total === 0) {
-        // Non creare automaticamente user_info qui - lascia che sia gestito dalle pagine di auth
+      // Fetch user_info from database
+      const { data: userInfoData, error: infoError } = await supabase
+        .from(USER_COLLECTION)
+        .select('*')
+        .eq('uuid', supabaseUser.id)
+        .maybeSingle();
+      
+      if (infoError) {
+        console.error("Error fetching user_info:", infoError);
+        setUserInfo(null);
+      } else if (!userInfoData) {
+        // No user_info found - let auth pages handle creation
         setUserInfo(null);
       } else {
-        // Fix type conversion: cast to unknown first, then to UserInfo
-        setUserInfo(infoRes.documents[0] ? (infoRes.documents[0] as unknown as UserInfo) : null);
+        // Transform database row to UserInfo interface
+        setUserInfo({
+          $id: userInfoData.id?.toString() || '',
+          uuid: userInfoData.uuid,
+          name: userInfoData.name || transformedUser.name,
+          email: userInfoData.email || transformedUser.email,
+          phone_number: userInfoData.phone_number,
+          street_address: userInfoData.street_address,
+          apartment_number: userInfoData.apartment_number,
+          nation: userInfoData.nation,
+          state: userInfoData.state,
+          postal_code: userInfoData.postal_code,
+          shipping_info: userInfoData.shipping_info,
+          name_surname: userInfoData.name_surname,
+        });
       }
     } catch (e) {
+      console.error("Error in fetchUser:", e);
       setUser(null);
       setUserInfo(null);
       setIsAdmin(false);
@@ -124,26 +147,33 @@ export const AccountProvider = ({ children }: { children: React.ReactNode }) => 
   };
 
   useEffect(() => {
-    // Reimposta JWT salvato per persistenza login
-    try {
-      const stored = typeof window !== 'undefined' ? localStorage.getItem('appwrite_jwt') : null;
-      if (stored) {
-        client.setJWT(stored);
-      }
-    } catch {}
     fetchUser();
+
+    // Subscribe to auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        fetchUser();
+      } else {
+        setUser(null);
+        setUserInfo(null);
+        setIsAdmin(false);
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const refresh = () => fetchUser();
 
   const logout = async () => {
     try {
-      await account.deleteSession("current");
+      await supabase.auth.signOut();
     } catch (e) {
-      // ensure client state clears even if network fails
+      console.error("Logout error:", e);
     } finally {
-      try { localStorage.removeItem('appwrite_jwt'); } catch {}
-      try { client.setJWT(""); } catch {}
       setUser(null);
       setUserInfo(null);
       setIsAdmin(false);

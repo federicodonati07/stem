@@ -2,7 +2,7 @@
 
 import React from "react";
 /* eslint-disable @next/next/no-img-element */
-import { databases, Query } from "../components/auth/appwriteClient";
+import { supabase, ORDERS_DB, PRODUCTS_DB } from "../components/auth/supabaseClient";
 import { useAccount } from "../components/AccountContext";
 import { Button } from "@heroui/react";
 import Link from "next/link";
@@ -20,7 +20,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function OrdersPage() {
   const { user } = useAccount();
-  type OrderDoc = { $id: string; status?: string; order_uuid?: string; selected_products?: unknown[]; spedition_info?: string };
+  type OrderDoc = { id: string; status?: string; order_uuid?: string; selected_products?: unknown[]; spedition_info?: string };
   type ProductDoc = { uuid?: string; name?: string; price?: string | number };
   const [orders, setOrders] = React.useState<OrderDoc[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -29,18 +29,33 @@ export default function OrdersPage() {
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
   const [copied, setCopied] = React.useState<Record<string, boolean>>({});
 
-  const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB as string | undefined;
-  const ordersCol = process.env.NEXT_PUBLIC_APPWRITE_ORDERS_DB as string | undefined;
-  const productsCol = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_DB as string | undefined;
-
   React.useEffect(() => {
     (async () => {
-      if (!user || !dbId || !ordersCol) { setLoading(false); return; }
+      if (!user) { setLoading(false); return; }
       setLoading(true);
       setError(null);
       try {
-        const res = await databases.listDocuments(dbId, ordersCol, [Query.equal('user_uuid', user.$id), Query.orderDesc('$createdAt'), Query.limit(50)]);
-        const docs = (res.documents as unknown[]) as OrderDoc[] || [];
+        const { data, error: fetchError } = await supabase
+          .from(ORDERS_DB)
+          .select('*')
+          .eq('user_uuid', user.$id)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        
+        if (fetchError) {
+          console.error('Error fetching orders:', fetchError);
+          setError('Impossibile caricare gli ordini');
+          setLoading(false);
+          return;
+        }
+        
+        const docs = (data || []).map(d => ({
+          id: d.id?.toString() || '',
+          status: d.status,
+          order_uuid: d.order_uuid,
+          selected_products: d.selected_products,
+          spedition_info: d.spedition_info,
+        }));
         const filtered = docs.filter((d) => String(d?.status || '').toLowerCase() !== 'archiviato');
         setOrders(filtered);
       } catch {
@@ -49,34 +64,50 @@ export default function OrdersPage() {
         setLoading(false);
       }
     })();
-  }, [user, dbId, ordersCol]);
+  }, [user]);
 
   // Carica dettagli prodotti per mostrare i nomi
   React.useEffect(() => {
     (async () => {
-      if (!dbId || !productsCol || orders.length === 0) { setProductsMap({}); return; }
+      if (orders.length === 0) { setProductsMap({}); return; }
       const uuids = new Set<string>();
       for (const o of orders) {
         const items = Array.isArray(o.selected_products) ? o.selected_products : [];
         for (const s of items) {
           try {
-            const it = typeof s === 'string' ? JSON.parse(s) : s;
-            if (it && typeof it.uuid === 'string') uuids.add(String(it.uuid));
+            const it = s;
+            if (it && typeof (it as any).uuid === 'string') uuids.add(String((it as any).uuid));
           } catch {}
         }
       }
       if (uuids.size === 0) { setProductsMap({}); return; }
       try {
-        const res = await databases.listDocuments(dbId, productsCol, [Query.equal('uuid', Array.from(uuids)), Query.limit(200)]);
+        const { data, error } = await supabase
+          .from(PRODUCTS_DB)
+          .select('*')
+          .in('uuid', Array.from(uuids))
+          .limit(200);
+        
+        if (error) {
+          console.error('Error fetching products:', error);
+          setProductsMap({});
+          return;
+        }
+        
         const map: Record<string, ProductDoc> = {};
-        const docs2 = (res.documents as unknown[]) as Array<Record<string, unknown>>;
-        for (const d of docs2) map[String(d.uuid as string)] = { uuid: String(d.uuid as string), name: typeof d.name === 'string' ? d.name : undefined, price: (typeof d.price === 'string' || typeof d.price === 'number') ? (d.price as string | number) : undefined };
+        for (const d of (data || [])) {
+          map[String(d.uuid)] = { 
+            uuid: String(d.uuid), 
+            name: typeof d.name === 'string' ? d.name : undefined, 
+            price: (typeof d.price === 'string' || typeof d.price === 'number') ? d.price : undefined 
+          };
+        }
         setProductsMap(map);
       } catch {
         setProductsMap({});
       }
     })();
-  }, [orders, dbId, productsCol]);
+  }, [orders]);
 
   const steps = ['pagato', 'elaborazione', 'spedito'];
   function statusIndex(status?: string) {
@@ -117,10 +148,10 @@ export default function OrdersPage() {
           <div className="space-y-4">
             {orders.map((o) => {
               const items = Array.isArray(o.selected_products) ? o.selected_products : [];
-              const parsed = items.map((s: unknown) => { try { return typeof s === 'string' ? JSON.parse(s as string) : s; } catch { return null; } }).filter(Boolean) as Array<{ uuid?: string; quantity?: number; unit_price?: string | number; personalized?: string; color?: string }>;
+              const parsed = items.map((s: unknown) => { try { return s; } catch { return null; } }).filter(Boolean) as Array<{ uuid?: string; quantity?: number; unit_price?: string | number; personalized?: string; color?: string }>;
               const idx = statusIndex(o.status);
               const percent = (idx / (steps.length - 1)) * 100;
-              const isOpen = !!open[o.$id];
+              const isOpen = !!open[o.id];
               // Calcolo totale ordine: usa unit_price salvato, altrimenti fallback al prezzo corrente dal productsMap
               let orderTotal = 0;
               for (const it of parsed) {
@@ -135,10 +166,10 @@ export default function OrdersPage() {
                 orderTotal += unit * qty;
               }
               return (
-                <div key={o.$id} className={`bg-white rounded-2xl border ${isOpen ? 'border-purple-300' : 'border-gray-200'} shadow-sm transition-colors`}>
-                  <button className="w-full p-5 flex items-center justify-between cursor-pointer hover:bg-gray-50" onClick={() => setOpen((m) => ({ ...m, [o.$id]: !m[o.$id] }))}>
+                <div key={o.id} className={`bg-white rounded-2xl border ${isOpen ? 'border-purple-300' : 'border-gray-200'} shadow-sm transition-colors`}>
+                  <button className="w-full p-5 flex items-center justify-between cursor-pointer hover:bg-gray-50" onClick={() => setOpen((m) => ({ ...m, [o.id]: !m[o.id] }))}>
                     <div>
-                      <div className="text-sm text-gray-600">Ordine <span className="font-semibold text-gray-900">{o.order_uuid || o.$id}</span>
+                      <div className="text-sm text-gray-600">Ordine <span className="font-semibold text-gray-900">{o.order_uuid || o.id}</span>
                         {String(o.status || '').toLowerCase()==='spedito' && o.spedition_info ? (
                           <span className="ml-2 inline-flex items-center align-middle text-xs font-medium text-blue-700">
                             <span>DHL Tracking Number</span>
@@ -146,16 +177,16 @@ export default function OrdersPage() {
                               role="button"
                               tabIndex={0}
                               aria-label="Copia numero tracking DHL"
-                              className={`ml-1 inline-flex items-center px-2 py-0.5 rounded-full ${copied[o.$id] ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'} cursor-pointer select-none`}
+                              className={`ml-1 inline-flex items-center px-2 py-0.5 rounded-full ${copied[o.id] ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'} cursor-pointer select-none`}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 e.preventDefault();
                                 const raw = String(o.spedition_info);
                                 const val = raw.includes(':') ? raw.split(':').slice(1).join(':').trim() : raw;
                                 navigator.clipboard?.writeText(val).then(() => {
-                                  setCopied((m) => ({ ...m, [o.$id]: true }));
+                                  setCopied((m) => ({ ...m, [o.id]: true }));
                                   setTimeout(() => {
-                                    setCopied((m) => ({ ...m, [o.$id]: false }));
+                                    setCopied((m) => ({ ...m, [o.id]: false }));
                                   }, 1200);
                                 }).catch(() => {});
                               }}
@@ -165,16 +196,16 @@ export default function OrdersPage() {
                                   const raw = String(o.spedition_info);
                                   const val = raw.includes(':') ? raw.split(':').slice(1).join(':').trim() : raw;
                                   navigator.clipboard?.writeText(val).then(() => {
-                                    setCopied((m) => ({ ...m, [o.$id]: true }));
+                                    setCopied((m) => ({ ...m, [o.id]: true }));
                                     setTimeout(() => {
-                                      setCopied((m) => ({ ...m, [o.$id]: false }));
+                                      setCopied((m) => ({ ...m, [o.id]: false }));
                                     }, 1200);
                                   }).catch(() => {});
                                 }
                               }}
                             >
                               {(() => {
-                                if (copied[o.$id]) return 'Copiato!';
+                                if (copied[o.id]) return 'Copiato!';
                                 const raw = String(o.spedition_info);
                                 const val = raw.includes(':') ? raw.split(':').slice(1).join(':').trim() : raw;
                                 return val;

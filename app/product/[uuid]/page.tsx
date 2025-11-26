@@ -3,7 +3,7 @@
 import React from "react";
 /* eslint-disable @next/next/no-img-element */
 import { useParams, useRouter } from "next/navigation";
-import { databases, storage, Query } from "../../components/auth/appwriteClient";
+import { supabase, PRODUCTS_DB, PRODUCTS_STORAGE } from "../../components/auth/supabaseClient";
 import { useAccount } from "../../components/AccountContext";
 import { useCart } from "../../components/CartContext";
 import { Button } from "@heroui/react";
@@ -17,19 +17,16 @@ export default function ProductDetailPage() {
 
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  type ProductDoc = { $id?: string; uuid: string; name?: string; description?: string; price?: string | number; colors?: unknown[]; personalizable?: boolean; category?: string };
+  type ProductDoc = { id?: string; uuid: string; name?: string; description?: string; price?: string | number; colors?: any[]; sizes?: any[]; personalizable?: boolean; category?: string };
   const [product, setProduct] = React.useState<ProductDoc | null>(null);
   const [color, setColor] = React.useState<string | undefined>(undefined);
+  const [size, setSize] = React.useState<string | undefined>(undefined);
   const [personalizeMode, setPersonalizeMode] = React.useState<"none" | "text" | "image">("none");
   const [personalizeText, setPersonalizeText] = React.useState("");
   const [personalizeFile, setPersonalizeFile] = React.useState<File | null>(null);
   const [personalizePreview, setPersonalizePreview] = React.useState<string | null>(null);
   const [uploading, setUploading] = React.useState(false);
   const [formError, setFormError] = React.useState<string | null>(null);
-
-  const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB as string | undefined;
-  const productsCol = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_DB as string | undefined;
-  const bucketId = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_STORAGE as string | undefined;
 
   function makePersonalizedId(prodUuid: string, userId: string) {
     function shortHash(input: string, len = 8) {
@@ -40,57 +37,83 @@ export default function ProductDetailPage() {
     }
     const hp = shortHash(prodUuid, 8);
     const hu = shortHash(userId, 8);
-    const s5 = Math.floor(Date.now() % 60466176).toString(36).padStart(5, '0'); // base36 up to 5 chars
-    return `personalized_${hp}_${hu}_${s5}`; // length 13+8+1+8+1+5 = 36
+    const s5 = Math.floor(Date.now() % 60466176).toString(36).padStart(5, '0');
+    return `personalized_${hp}_${hu}_${s5}`;
   }
 
   React.useEffect(() => {
     (async () => {
-      if (!dbId || !productsCol || !params?.uuid) { setError("Configurazione mancante"); setLoading(false); return; }
+      if (!params?.uuid) { 
+        setError("UUID prodotto mancante"); 
+        setLoading(false); 
+        return; 
+      }
+      
       try {
-        const res = await databases.listDocuments(dbId, productsCol, [Query.equal("uuid", params.uuid), Query.limit(1)]);
-        if (res.total === 0) { setError("Prodotto non trovato"); setLoading(false); return; }
-        const doc = res.documents[0] as Record<string, unknown>;
+        const { data, error: fetchError } = await supabase
+          .from(PRODUCTS_DB)
+          .select('*')
+          .eq('uuid', params.uuid)
+          .maybeSingle();
+        
+        if (fetchError) {
+          console.error('Error fetching product:', fetchError);
+          setError("Errore nel caricamento del prodotto");
+          setLoading(false);
+          return;
+        }
+        
+        if (!data) { 
+          setError("Prodotto non trovato"); 
+          setLoading(false); 
+          return; 
+        }
+        
         const mapped: ProductDoc = {
-          $id: typeof doc.$id === 'string' ? doc.$id : undefined,
-          uuid: String(doc.uuid || params.uuid),
-          name: typeof doc.name === 'string' ? doc.name : undefined,
-          description: typeof doc.description === 'string' ? doc.description : undefined,
-          price: (typeof doc.price === 'string' || typeof doc.price === 'number') ? (doc.price as string | number) : undefined,
-          colors: Array.isArray(doc.colors) ? (doc.colors as unknown[]) : [],
-          personalizable: Boolean(doc.personalizable),
-          category: typeof doc.category === 'string' ? doc.category : undefined,
+          id: data.id?.toString(),
+          uuid: String(data.uuid || params.uuid),
+          name: typeof data.name === 'string' ? data.name : undefined,
+          description: typeof data.description === 'string' ? data.description : undefined,
+          price: (typeof data.price === 'string' || typeof data.price === 'number') ? data.price : undefined,
+          colors: Array.isArray(data.colors) ? data.colors : [],
+          sizes: Array.isArray(data.sizes) ? data.sizes : [],
+          personalizable: Boolean(data.personalizable),
+          category: typeof data.category === 'string' ? data.category : undefined,
         };
+        
         setProduct(mapped);
-        const colors: string[] = Array.isArray(mapped.colors) ? (mapped.colors as unknown[]).map((c) => String(c)) : [];
+        const colors: string[] = Array.isArray(mapped.colors) ? mapped.colors.map((c) => String(c)) : [];
+        const sizes: string[] = Array.isArray(mapped.sizes) ? mapped.sizes.map((s) => String(s)) : [];
         setColor(colors[0]);
+        setSize(sizes[0]);
+        
         const isPersonalizable = !!mapped.personalizable && (mapped.category === 'Stickers' || mapped.category === 'Plate');
         if (isPersonalizable) {
-          // Se Stickers, niente "nessuna personalizzazione"
           setPersonalizeMode(mapped.category === 'Stickers' ? 'text' : 'text');
         } else {
           setPersonalizeMode('none');
         }
-      } catch {
+      } catch (err) {
+        console.error('Unexpected error:', err);
         setError("Errore nel caricamento del prodotto");
       } finally {
         setLoading(false);
       }
     })();
-  }, [dbId, productsCol, params?.uuid]);
-
-  // Carica direttamente il file originale nello storage (niente conversione)
+  }, [params?.uuid]);
 
   async function handleAddToCart() {
     if (!product) return;
     setFormError(null);
     let personalized: string | undefined = undefined;
     const canPersonalize = !!product.personalizable && (product.category === 'Stickers' || product.category === 'Plate');
+    
     if (canPersonalize) {
       if (product.category === 'Stickers' && personalizeMode === 'none') {
         setFormError('Per la categoria Stickers la personalizzazione è obbligatoria.');
         return;
       }
+      
       if (personalizeMode === "text") {
         if (!personalizeText.trim()) {
           setFormError('Inserisci un testo per la personalizzazione.');
@@ -102,21 +125,40 @@ export default function ProductDetailPage() {
           setFormError('Seleziona un\'immagine da caricare.');
           return;
         }
-        if (!user || !bucketId) {
-          setFormError('Impossibile caricare immagine: configurazione non valida.');
+        if (!user) {
+          setFormError('Impossibile caricare immagine: devi effettuare il login.');
           return;
         }
+        
         const allowed = ["image/png", "image/svg+xml"];
         if (!allowed.includes(personalizeFile.type)) {
           setFormError('Formato non supportato. Carica un file PNG o SVG.');
           return;
         }
+        
         try {
           setUploading(true);
           const fileId = makePersonalizedId(product.uuid, user.$id);
-          // Elimina eventuale immagine precedente
-          try { await storage.deleteFile(bucketId, fileId); } catch {}
-          await storage.createFile({ bucketId, fileId, file: personalizeFile });
+          
+          // Try to delete existing file (ignore errors if it doesn't exist)
+          try { 
+            await supabase.storage.from(PRODUCTS_STORAGE).remove([fileId]); 
+          } catch {}
+          
+          // Upload new file
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from(PRODUCTS_STORAGE)
+            .upload(fileId, personalizeFile, {
+              upsert: false,
+            });
+          
+          if (uploadError) {
+            console.error('Upload error:', uploadError);
+            setFormError('Errore nel caricamento dell\'immagine, riprova.');
+            setUploading(false);
+            return;
+          }
+          
           personalized = `/api/media/products/${fileId}`;
         } catch (e) {
           console.error('personalized image upload error', e);
@@ -128,7 +170,8 @@ export default function ProductDetailPage() {
         }
       }
     }
-    await addToCart(product.uuid, 1, personalized, color);
+    
+    await addToCart(product.uuid, 1, personalized, color, size);
     router.push("/cart");
   }
 
@@ -136,7 +179,8 @@ export default function ProductDetailPage() {
   if (error) return <div className="min-h-screen flex items-center justify-center text-red-600">{error}</div>;
   if (!product) return null;
 
-  const colors: string[] = Array.isArray(product.colors) ? (product.colors as unknown[]).map((c) => String(c)) : [];
+  const colors: string[] = Array.isArray(product.colors) ? product.colors.map((c) => String(c)) : [];
+  const sizes: string[] = Array.isArray(product.sizes) ? product.sizes.map((s) => String(s)) : [];
   const canPersonalize = !!product.personalizable && (product.category === 'Stickers' || product.category === 'Plate');
   const forcePersonalization = product.category === 'Stickers' && !!product.personalizable;
 
@@ -165,6 +209,28 @@ export default function ProductDetailPage() {
                 <div className="flex items-center gap-3 flex-wrap">
                   {colors.map((c) => (
                     <button key={c} type="button" onClick={() => setColor(c)} className={`w-8 h-8 rounded-full border-2 transition-colors ${color === c ? 'border-purple-600 ring-2 ring-purple-200' : 'border-gray-300 hover:border-purple-400'}`} style={{ backgroundColor: c }} title={c} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {sizes.length > 0 ? (
+              <div className="mb-6">
+                <div className="text-sm font-semibold text-gray-800 mb-2">Taglia</div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {sizes.map((s) => (
+                    <button 
+                      key={s} 
+                      type="button" 
+                      onClick={() => setSize(s)} 
+                      className={`px-4 py-2 rounded-full border-2 text-sm font-medium transition-colors ${
+                        size === s 
+                          ? 'bg-purple-600 text-white border-purple-600' 
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-purple-400'
+                      }`}
+                    >
+                      {s}
+                    </button>
                   ))}
                 </div>
               </div>

@@ -5,7 +5,7 @@ import React from "react";
 import { useCart } from "../components/CartContext";
 import Link from "next/link";
 import { Button } from "@heroui/react";
-import { databases, Query } from "../components/auth/appwriteClient";
+import { supabase, PRODUCTS_DB, ORDERS_DB } from "../components/auth/supabaseClient";
 import { ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAccount } from "../components/AccountContext";
@@ -23,6 +23,7 @@ type CartLineItem = {
   purchased?: boolean;
   color?: string;
   personalized?: string;
+  size?: string;
 };
 
 export default function CartPage() {
@@ -34,15 +35,23 @@ export default function CartPage() {
   const [products, setProducts] = React.useState<Record<string, ProductDoc>>({});
   React.useEffect(() => {
     const uuids = Array.from(new Set(cartItems.map(i => i.uuid)));
-    const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB as string | undefined;
-    const productsCol = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_DB as string | undefined;
-    if (!dbId || !productsCol || uuids.length === 0) { setProducts({}); return; }
+    if (uuids.length === 0) { setProducts({}); return; }
     (async () => {
       try {
-        const res = await databases.listDocuments(dbId, productsCol, [Query.equal("uuid", uuids), Query.limit(100)]);
+        const { data, error } = await supabase
+          .from(PRODUCTS_DB)
+          .select('*')
+          .in('uuid', uuids)
+          .limit(100);
+        
+        if (error) {
+          console.error('Error fetching products:', error);
+          setProducts({});
+          return;
+        }
+        
         const map: Record<string, ProductDoc> = {};
-        const docs = (res.documents as unknown[]) as Array<Record<string, unknown>>;
-        for (const d of docs) {
+        for (const d of (data || [])) {
           const uuid = typeof d.uuid === 'string' ? d.uuid : '';
           if (!uuid) continue;
           const name = typeof d.name === 'string' ? d.name : undefined;
@@ -67,8 +76,9 @@ export default function CartPage() {
         purchased: !!iRaw.purchased,
         color: typeof iRaw.color === 'string' ? iRaw.color : undefined,
         personalized: typeof iRaw.personalized === 'string' ? iRaw.personalized : undefined,
+        size: typeof iRaw.size === 'string' ? iRaw.size : undefined,
       };
-      const key = `${i.uuid}|${i.color || ''}|${i.personalized || ''}`;
+      const key = `${i.uuid}|${i.color || ''}|${i.personalized || ''}|${i.size || ''}`;
       const cur = acc.get(key);
       if (cur) {
         cur.quantity += i.quantity || 0;
@@ -119,31 +129,31 @@ export default function CartPage() {
   const [recentProducts, setRecentProducts] = React.useState<Record<string, ProductDoc>>({});
   const [recentLoading, setRecentLoading] = React.useState(false);
   React.useEffect(() => {
-    const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB as string | undefined;
-    const ordersCol = process.env.NEXT_PUBLIC_APPWRITE_ORDERS_DB as string | undefined;
-    const productsCol = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_DB as string | undefined;
-    if (!user || !dbId || !ordersCol) { setRecent([]); return; }
+    if (!user) { setRecent([]); return; }
     (async () => {
       setRecentLoading(true);
       try {
-        const res = await databases.listDocuments(dbId, ordersCol, [Query.equal('user_uuid', user.$id), Query.orderDesc('$createdAt'), Query.limit(10)]);
+        const { data: orders, error: ordersError } = await supabase
+          .from(ORDERS_DB)
+          .select('*')
+          .eq('user_uuid', user.$id)
+          .order('created_at', { ascending: false })
+          .limit(10);
+        
+        if (ordersError) {
+          console.error('Error fetching recent orders:', ordersError);
+          setRecent([]);
+          setRecentProducts({});
+          setRecentLoading(false);
+          return;
+        }
+        
         const items: CartLineItem[] = [];
-        const orderDocs = (res.documents as unknown[]) as Array<Record<string, unknown>>;
-        for (const o of orderDocs) {
+        for (const o of (orders || [])) {
           const arr = Array.isArray(o.selected_products) ? o.selected_products : [];
           for (const s of arr) {
             try {
-              if (typeof s === 'string') {
-                const parsed = JSON.parse(s);
-                if (parsed && typeof parsed === 'object' && 'uuid' in parsed) {
-                  items.push({
-                    uuid: String((parsed as Record<string, unknown>).uuid),
-                    quantity: Number((parsed as Record<string, unknown>).quantity || 0),
-                    color: typeof (parsed as Record<string, unknown>).color === 'string' ? String((parsed as Record<string, unknown>).color) : undefined,
-                    personalized: typeof (parsed as Record<string, unknown>).personalized === 'string' ? String((parsed as Record<string, unknown>).personalized) : undefined,
-                  });
-                }
-              } else if (s && typeof s === 'object' && 'uuid' in s) {
+              if (s && typeof s === 'object' && 'uuid' in s) {
                 const so = s as Record<string, unknown>;
                 items.push({
                   uuid: String(so.uuid),
@@ -155,32 +165,43 @@ export default function CartPage() {
             } catch {}
           }
         }
+        
         // group
         const map = new Map<string, { key: string; sample: CartLineItem; quantity: number }>();
         for (const it of items) {
           if (!it || !it.uuid) continue;
-          const key = `${it.uuid}|${it.color || ''}|${it.personalized || ''}`;
+          const key = `${it.uuid}|${it.color || ''}|${it.personalized || ''}|${it.size || ''}`;
           const cur = map.get(key);
           if (cur) cur.quantity += Number(it.quantity || 0);
           else map.set(key, { key, sample: it, quantity: Number(it.quantity || 0) });
         }
         const groupedRecent = Array.from(map.values());
         setRecent(groupedRecent);
+        
         // fetch product details
-        if (productsCol && groupedRecent.length) {
+        if (groupedRecent.length) {
           const uuids = Array.from(new Set(groupedRecent.map(g => g.sample.uuid)));
-          const res2 = await databases.listDocuments(dbId, productsCol, [Query.equal('uuid', uuids), Query.limit(100)]);
-          const pmap: Record<string, ProductDoc> = {};
-          const docs2 = (res2.documents as unknown[]) as Array<Record<string, unknown>>;
-          for (const d of docs2) {
-            const uuid = typeof d.uuid === 'string' ? d.uuid : '';
-            if (!uuid) continue;
-            const name = typeof d.name === 'string' ? d.name : undefined;
-            const price = (typeof d.price === 'string' || typeof d.price === 'number') ? (d.price as string | number) : '0';
-            const stock = typeof d.stock === 'number' ? d.stock : Number(d.stock ?? 0);
-            pmap[uuid] = { uuid, name, price, stock };
+          const { data: productsData, error: productsError } = await supabase
+            .from(PRODUCTS_DB)
+            .select('*')
+            .in('uuid', uuids)
+            .limit(100);
+          
+          if (productsError) {
+            console.error('Error fetching products:', productsError);
+            setRecentProducts({});
+          } else {
+            const pmap: Record<string, ProductDoc> = {};
+            for (const d of (productsData || [])) {
+              const uuid = typeof d.uuid === 'string' ? d.uuid : '';
+              if (!uuid) continue;
+              const name = typeof d.name === 'string' ? d.name : undefined;
+              const price = (typeof d.price === 'string' || typeof d.price === 'number') ? (d.price as string | number) : '0';
+              const stock = typeof d.stock === 'number' ? d.stock : Number(d.stock ?? 0);
+              pmap[uuid] = { uuid, name, price, stock };
+            }
+            setRecentProducts(pmap);
           }
-          setRecentProducts(pmap);
         } else {
           setRecentProducts({});
         }
@@ -240,17 +261,18 @@ export default function CartPage() {
                             <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-xs">Standard</span>
                           )}
                           {color ? <span className="inline-flex items-center gap-1 text-xs text-gray-700">Colore <span className="w-3 h-3 rounded-full border" style={{ backgroundColor: color }} /></span> : null}
+                          {size ? <span className="text-xs text-gray-700">Taglia: {size}</span> : null}
                         </div>
                         <div className="text-sm text-gray-700">€{priceNum.toFixed(2)} /EUR</div>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <label className="flex items-center gap-2 text-sm text-gray-700">
-                        <input type="checkbox" checked={g.purchased} onChange={(e) => setPurchased(g.sample.uuid, e.target.checked, g.sample.personalized, g.sample.color)} />
+                        <input type="checkbox" checked={g.purchased} onChange={(e) => setPurchased(g.sample.uuid, e.target.checked, g.sample.personalized, g.sample.color, g.sample.size)} />
                         Acquista
                       </label>
                       <div className="flex items-center gap-2">
-                        <Button variant="bordered" className="h-9 px-3 rounded-full border-gray-400 text-gray-800" onClick={() => updateQuantity(g.sample.uuid, Math.max(0, g.quantity - 1), g.sample.personalized, g.sample.color)}>-</Button>
+                        <Button variant="bordered" className="h-9 px-3 rounded-full border-gray-400 text-gray-800" onClick={() => updateQuantity(g.sample.uuid, Math.max(0, g.quantity - 1), g.sample.personalized, g.sample.color, g.sample.size)}>-</Button>
                         <span className="w-10 text-center font-semibold text-gray-900">x{g.quantity}</span>
                         <Button
                           variant="bordered"
@@ -258,14 +280,14 @@ export default function CartPage() {
                           onClick={() => {
                             const max = Math.max(0, Number(products[g.sample.uuid]?.stock || 0));
                             if (g.quantity + 1 > max) return; // prevent exceeding stock
-                            updateQuantity(g.sample.uuid, g.quantity + 1, g.sample.personalized, g.sample.color);
+                            updateQuantity(g.sample.uuid, g.quantity + 1, g.sample.personalized, g.sample.color, g.sample.size);
                           }}
                           isDisabled={g.quantity >= Math.max(0, Number(products[g.sample.uuid]?.stock || 0))}
                         >
                           +
                         </Button>
                       </div>
-                      <Button variant="bordered" className="h-9 px-3 rounded-full border-red-300 text-red-700" onClick={() => removeItem(g.sample.uuid, g.sample.personalized, g.sample.color)}>Rimuovi</Button>
+                      <Button variant="bordered" className="h-9 px-3 rounded-full border-red-300 text-red-700" onClick={() => removeItem(g.sample.uuid, g.sample.personalized, g.sample.color, g.sample.size)}>Rimuovi</Button>
                     </div>
                   </div>
                 );

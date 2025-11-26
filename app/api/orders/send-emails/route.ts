@@ -1,4 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_PROJECT_URL!;
+const supabaseKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_API_KEY_RSL!;
+const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
 
 type EmailItem = {
   uuid: string;
@@ -105,82 +112,56 @@ function buildOrderHtml({
 export async function POST(req: NextRequest) {
   try {
     const resendKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
-    const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-    const apiKey = process.env.NEXT_PUBLIC_APPWRITE_API_KEY;
-    const adminTeamId = process.env.NEXT_PUBLIC_APPWRITE_ADMIN_TEAM_ID;
-    if (!resendKey || !endpoint || !projectId || !apiKey) {
+
+    if (!resendKey) {
       return NextResponse.json(
-        { error: "Missing configuration" },
+        { error: "Missing Resend API key" },
         { status: 500 }
       );
     }
-    const base = endpoint.replace(/\/$/, "");
 
     const body = await req.json();
     const orderId: string = String(body?.order_uuid || body?.orderId || "");
     const userUuid: string = String(body?.user_uuid || body?.userUuid || "");
     const items: EmailItem[] = Array.isArray(body?.items) ? body.items : [];
     const totalNum = Number(body?.total || 0);
-    if (!orderId || !userUuid)
+
+    if (!orderId || !userUuid) {
       return NextResponse.json(
         { error: "Missing order/user" },
         { status: 400 }
       );
+    }
 
-    // Fetch customer email via Auth
+    // Fetch customer email via Supabase Auth
     let customerEmail = "";
     try {
-      const u = await fetch(`${base}/users/${encodeURIComponent(userUuid)}`, {
-        headers: { "X-Appwrite-Project": projectId, "X-Appwrite-Key": apiKey },
-        cache: "no-store",
-      });
-      if (u.ok) {
-        const data = await u.json();
-        customerEmail = String(data?.email || "");
-      }
-    } catch {}
+      const {
+        data: { user },
+        error,
+      } = await supabaseAdmin.auth.admin.getUserById(userUuid);
 
-    // Fetch admin email (first admin in team)
+      if (error) {
+        console.error("Error fetching user:", error);
+      } else if (user) {
+        customerEmail = user.email || "";
+      }
+    } catch (e) {
+      console.error("Error fetching customer email:", e);
+    }
+
+    // Fetch admin email (users with admin role in metadata)
     let adminEmail = "";
-    if (adminTeamId) {
-      try {
-        const tm = await fetch(
-          `${base}/teams/${adminTeamId}/memberships?limit=100`,
-          {
-            headers: {
-              "X-Appwrite-Project": projectId,
-              "X-Appwrite-Key": apiKey,
-            },
-            cache: "no-store",
-          }
-        );
-        if (tm.ok) {
-          const data = await tm.json();
-          const members: { userId?: string; userID?: string }[] = Array.isArray(data?.memberships)
-            ? data.memberships
-            : [];
-          // pick first membership
-          const m = members[0];
-          const adminId = m?.userId || m?.userID || "";
-          if (adminId) {
-            const au = await fetch(
-              `${base}/users/${encodeURIComponent(adminId)}`,
-              {
-                headers: {
-                  "X-Appwrite-Project": projectId,
-                  "X-Appwrite-Key": apiKey,
-                },
-                cache: "no-store",
-              }
-            );
-            if (au.ok) {
-              const adata = await au.json();
-              adminEmail = String(adata?.email || "");
-            }
-          }
-        }
-      } catch {}
+    try {
+      // In Supabase, we can fetch users with admin role from metadata
+      // For simplicity, you might want to hardcode an admin email or use a different approach
+      // Here's an example of hardcoding or using an env variable
+      adminEmail = process.env.ADMIN_EMAIL || "";
+
+      // Alternative: query users with admin role from app_metadata
+      // This would require a custom query or RLS policy
+    } catch (e) {
+      console.error("Error fetching admin email:", e);
     }
 
     const fromEmail = "noreply@stemcast.netlify.app.com";
@@ -232,7 +213,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (e) {
+    console.error("send-emails error:", e);
     return NextResponse.json({ error: "Unexpected error" }, { status: 500 });
   }
 }
-

@@ -5,11 +5,11 @@ import { motion, type Variants } from 'framer-motion';
 import { Button, Card, CardBody, CardFooter } from '@heroui/react';
 import { Star } from 'lucide-react';
 import React from 'react';
-import { databases, Query } from './auth/appwriteClient';
+import { supabase, PRODUCTS_DB } from './auth/supabaseClient';
 import Link from 'next/link';
 
 type Product = {
-  $id: string;
+  id: string;
   name: string;
   price: string;
   uuid: string;
@@ -24,40 +24,38 @@ const ProductGrid = () => {
   const [products, setProducts] = React.useState<Product[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  // cart actions not needed here (CTA uses link)
 
   React.useEffect(() => {
-    const dbId = process.env.NEXT_PUBLIC_APPWRITE_DB as string | undefined;
-    const colId = process.env.NEXT_PUBLIC_APPWRITE_PRODUCTS_DB as string | undefined;
-    if (!dbId || !colId) {
-      setError('Configurazione Appwrite mancante');
-      setLoading(false);
-      return;
-    }
     (async () => {
       setLoading(true);
       setError(null);
       try {
-        const res = await databases.listDocuments(dbId, colId, [
-          Query.equal('status', true),
-          Query.limit(100),
-        ]);
-        const docs = (res.documents || []) as Array<Record<string, unknown>>;
-        const mapped: Product[] = docs.map((d) => ({
-          $id: String(d.$id ?? ''),
+        const { data, error: fetchError } = await supabase
+          .from(PRODUCTS_DB)
+          .select('*')
+          .eq('status', true)
+          .limit(100);
+        
+        if (fetchError) {
+          console.error('Error fetching products:', fetchError);
+          setError('Impossibile caricare i prodotti');
+          return;
+        }
+        
+        const mapped: Product[] = (data || []).map((d: any) => ({
+          id: String(d.id ?? ''),
           name: String(d.name ?? ''),
           price: String(d.price ?? ''),
           uuid: String(d.uuid ?? ''),
-          img_url: typeof d.img_url === 'string' ? (d.img_url as string).split('?')[0] : undefined,
+          img_url: typeof d.img_url === 'string' ? d.img_url.split('?')[0] : undefined,
           personalizable: Boolean(d.personalizable),
           description: typeof d.description === 'string' ? d.description : '',
-          stock: Number((d as { stock?: unknown }).stock ?? 0),
-          colors: Array.isArray((d as { colors?: unknown }).colors)
-            ? ((d as { colors?: unknown[] }).colors || []).map((c: unknown) => String(c))
-            : [],
+          stock: Number(d.stock ?? 0),
+          colors: Array.isArray(d.colors) ? d.colors.map((c: any) => String(c)) : [],
         }));
         setProducts(mapped);
-      } catch {
+      } catch (err) {
+        console.error('Unexpected error:', err);
         setError('Impossibile caricare i prodotti');
       } finally {
         setLoading(false);
@@ -124,7 +122,7 @@ const ProductGrid = () => {
           >
             {products.map((product) => (
               <motion.div
-                key={product.$id}
+                key={product.id}
                 variants={itemVariants}
                 whileHover={{ y: -8 }}
                 transition={{ duration: 0.3, ease: [0.42, 0, 0.58, 1] }}
