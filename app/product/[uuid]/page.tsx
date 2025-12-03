@@ -3,7 +3,7 @@
 import React from "react";
 /* eslint-disable @next/next/no-img-element */
 import { useParams, useRouter } from "next/navigation";
-import { supabase, PRODUCTS_DB, PRODUCTS_STORAGE, CLIENT_CUSTOMIZATION_STORAGE, USER_COLLECTION } from "../../components/auth/supabaseClient";
+import { supabase, PRODUCTS_DB, CLIENT_CUSTOMIZATION_STORAGE, USER_COLLECTION } from "../../components/auth/supabaseClient";
 import { useAccount } from "../../components/AccountContext";
 import { useCart } from "../../components/CartContext";
 import { Button } from "@heroui/react";
@@ -17,31 +17,31 @@ export default function ProductDetailPage() {
 
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  type ProductDoc = { id?: string; uuid: string; name?: string; description?: string; price?: string | number; colors?: any[]; sizes?: any[]; personalizable?: boolean; category?: string; likes?: number };
+  type ProductDoc = {
+    id?: string;
+    uuid: string;
+    name?: string;
+    description?: string;
+    price?: string | number;
+    colors?: unknown[];
+    sizes?: unknown[];
+    personalizable?: boolean;
+    category?: string;
+    likes?: number;
+  };
   const [product, setProduct] = React.useState<ProductDoc | null>(null);
   const [liking, setLiking] = React.useState(false);
   const [liked, setLiked] = React.useState(false);
   const [color, setColor] = React.useState<string | undefined>(undefined);
   const [size, setSize] = React.useState<string | undefined>(undefined);
-  const [personalizeMode, setPersonalizeMode] = React.useState<"none" | "text" | "image">("none");
+  // personalizeMode state was used per-category in a previous iteration; current UI uses booleans isCustomText/isCustomImage
   const [personalizeText, setPersonalizeText] = React.useState("");
   const [personalizeFile, setPersonalizeFile] = React.useState<File | null>(null);
   const [personalizePreview, setPersonalizePreview] = React.useState<string | null>(null);
   const [uploading, setUploading] = React.useState(false);
   const [formError, setFormError] = React.useState<string | null>(null);
 
-  function makePersonalizedId(prodUuid: string, userId: string) {
-    function shortHash(input: string, len = 8) {
-      let h = 5381;
-      for (let i = 0; i < input.length; i++) h = ((h << 5) + h) + input.charCodeAt(i);
-      const base = Math.abs(h).toString(36);
-      return base.slice(0, len);
-    }
-    const hp = shortHash(prodUuid, 8);
-    const hu = shortHash(userId, 8);
-    const s5 = Math.floor(Date.now() % 60466176).toString(36).padStart(5, '0');
-    return `personalized_${hp}_${hu}_${s5}`;
-  }
+  // makePersonalizedId utility no longer used (kept here for potential future use)
 
   React.useEffect(() => {
     (async () => {
@@ -90,19 +90,8 @@ export default function ProductDetailPage() {
         setColor(colors[0]);
         setSize(sizes[0]);
         
-        // Set personalize mode based on category
-        const isPersonalizable = !!mapped.personalizable;
-        if (isPersonalizable) {
-          if (mapped.category === 'CustomImage') {
-            setPersonalizeMode('image');
-          } else if (mapped.category === 'CustomText') {
-            setPersonalizeMode('text');
-          } else {
-            setPersonalizeMode('none');
-          }
-        } else {
-          setPersonalizeMode('none');
-        }
+        // The UI for personalizzazione ora usa direttamente isCustomText/isCustomImage nel render,
+        // quindi non abbiamo più bisogno di uno stato separato per il mode qui.
       } catch (err) {
         console.error('Unexpected error:', err);
         setError("Errore nel caricamento del prodotto");
@@ -131,8 +120,9 @@ export default function ProductDetailPage() {
           return;
         }
 
-        const arr: string[] = Array.isArray((data as any)?.liked_products)
-          ? (data as any).liked_products.map((v: unknown) => String(v))
+        const raw = data as { [key: string]: unknown } | null;
+        const arr: string[] = raw && Array.isArray(raw.liked_products)
+          ? raw.liked_products.map((v: unknown) => String(v))
           : [];
 
         setLiked(arr.includes(product.uuid));
@@ -140,7 +130,7 @@ export default function ProductDetailPage() {
         console.error('Unexpected error fetching liked_products:', err);
       }
     })();
-  }, [user?.$id, product?.uuid]);
+  }, [user, product?.uuid]);
 
   async function handleLike() {
     if (!user || !product || liking) return;
@@ -159,8 +149,9 @@ export default function ProductDetailPage() {
         return;
       }
 
-      const currentArr: string[] = Array.isArray((data as any)?.liked_products)
-        ? (data as any).liked_products.map((v: unknown) => String(v))
+      const raw = data as { [key: string]: unknown } | null;
+      const currentArr: string[] = raw && Array.isArray(raw.liked_products)
+        ? raw.liked_products.map((v: unknown) => String(v))
         : [];
 
       const isCurrentlyLiked = currentArr.includes(product.uuid);

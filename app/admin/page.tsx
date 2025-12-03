@@ -293,6 +293,7 @@ export default function AdminDashboard() {
   // User modal (shipping info)
   type UserInfo = {
     name_surname?: string;
+    email?: string;
     phone_number?: string;
     street_address?: string;
     apartment_number?: string;
@@ -365,7 +366,7 @@ export default function AdminDashboard() {
       
       const data: UserInfo = {
         name_surname: String(doc.name_surname ?? ''),
-        email: userEmail,
+        email: userEmail || undefined,
         phone_number: String(doc.phone_number ?? ''),
         street_address: String(doc.street_address ?? ''),
         apartment_number: String(doc.apartment_number ?? ''),
@@ -390,8 +391,6 @@ export default function AdminDashboard() {
   }, [statusMenuFor]);
 
   type UnknownRecord = Record<string, unknown>;
-  type AppwriteDocument = { $id: string; $createdAt?: string } & UnknownRecord;
-  type DocumentList<T> = { total: number; documents: T[] };
 
   const getFirstString = useCallback((o: UnknownRecord, keys: string[]): string => {
     for (const k of keys) {
@@ -578,12 +577,32 @@ export default function AdminDashboard() {
               .in('uuid', Array.from(userUuids))
               .limit(200);
             
-            if (!usersError && usersData) {
-              const userByUuid: Record<string, any> = {};
+            if (!usersError && Array.isArray(usersData)) {
+              type UserInfo = {
+                uuid: string;
+                name_surname?: string;
+                phone_number?: string;
+                apartment_number?: string;
+                nation?: string;
+                state?: string;
+                postal_code?: string;
+                street_address?: string;
+              };
+              const userByUuid: Record<string, UserInfo> = {};
               for (const u of usersData) {
-                if (u.uuid) userByUuid[String(u.uuid)] = u;
+                if (u && typeof u.uuid === "string") {
+                  userByUuid[u.uuid] = {
+                    uuid: u.uuid,
+                    name_surname: u.name_surname,
+                    phone_number: u.phone_number,
+                    apartment_number: u.apartment_number,
+                    nation: u.nation,
+                    state: u.state,
+                    postal_code: u.postal_code,
+                    street_address: u.street_address
+                  };
+                }
               }
-              
               // Get emails from API endpoint (uses service role key)
               const emailByUuid: Record<string, string> = {};
               try {
@@ -792,8 +811,8 @@ export default function AdminDashboard() {
         img_url: String(d.img_url ?? "").split('?')[0],
         status: Boolean(d.status ?? true),
         personalizable: Boolean(d.personalizable ?? false),
-        colors: Array.isArray(d.colors) ? d.colors.map((c: any) => String(c)) : [],
-        sizes: Array.isArray(d.sizes) ? d.sizes.map((s: any) => String(s)) : [],
+        colors: Array.isArray(d.colors) ? d.colors.map((c: string) => String(c)) : [],
+        sizes: Array.isArray(d.sizes) ? d.sizes.map((s: string) => String(s)) : [],
       }));
       setProducts(mapped);
     } catch (e) {
@@ -1615,10 +1634,11 @@ export default function AdminDashboard() {
                                                   type="button"
                                                   className="inline-flex items-center gap-1 text-sm font-bold text-purple-700 hover:text-purple-900"
                                                   onClick={(e) => { e.stopPropagation(); openPersonalization(personal); }}
-                                                  title={`Vedi testo: "${personal}"`}
+                                                  title={`Vedi testo: ${personal}`}
                                                 >
                                                   <FileText size={14} />
-                                                  &quot;{personal.slice(0, 20)}{personal.length > 20 ? '...' : ''}&quot;
+                                                  {personal.slice(0, 20)}
+                                                  {personal.length > 20 ? '…' : ''}
                                                 </button>
                                               )}
                                             </>
@@ -2398,7 +2418,7 @@ export default function AdminDashboard() {
                   ) : (
                     <div className="space-y-4">
                       <div className="px-4 py-4 border-2 border-purple-200 rounded-xl text-gray-900 font-bold bg-gradient-to-br from-purple-50 to-white text-lg">
-                        &quot;{persModal.value}&quot;
+                        {persModal.value}
                       </div>
                       <div className="flex justify-center">
                         <Button 
@@ -2479,7 +2499,10 @@ function EditProductModal({ p, onClose, onUpdate, onUpdateImage, onDelete, busy 
           // Fallback categories
           setCategories(['Stickers', 'Plate', 'Abbigliamento', 'Accessori', 'Gadget', 'Altro']);
         } else {
-          const categoryNames = (data || []).map((cat: any) => String(cat.name)).filter(Boolean);
+          const rows = (data || []) as Array<{ name?: unknown }>;
+          const categoryNames = rows
+            .map((cat) => (cat.name != null ? String(cat.name) : ''))
+            .filter(Boolean);
           setCategories(categoryNames.length > 0 ? categoryNames : ['Altro']);
         }
       } catch (err) {
@@ -2953,7 +2976,7 @@ function EditProductModal({ p, onClose, onUpdate, onUpdateImage, onDelete, busy 
                         <p className="text-sm text-gray-500 italic">Nessun colore aggiunto. Usa il picker sopra per aggiungerne.</p>
                       </div>
                     )}
-                    <p className="text-xs text-gray-500">💡 Puoi aggiungere fino a 20 colori per questo prodotto. Il pulsante "Salva tutti" si abiliterà quando modifichi i colori.</p>
+                    <p className="text-xs text-gray-500">💡 Puoi aggiungere fino a 20 colori per questo prodotto. Il pulsante Salva tutti si abiliterà quando modifichi i colori.</p>
                   </div>
                 </div>
 
@@ -3052,7 +3075,7 @@ function EditProductModal({ p, onClose, onUpdate, onUpdateImage, onDelete, busy 
                         <p className="text-sm text-gray-500 italic">Nessuna taglia selezionata. Scegli dalle taglie standard o aggiungi taglie personalizzate.</p>
                   </div>
                     )}
-                    <p className="text-xs text-gray-500">💡 Seleziona le taglie standard cliccandoci sopra, oppure aggiungi taglie personalizzate (es. 36, 38, 40). Il pulsante "Salva tutte" si abiliterà quando modifichi le taglie.</p>
+                    <p className="text-xs text-gray-500">💡 Seleziona le taglie standard cliccandoci sopra, oppure aggiungi taglie personalizzate (es. 36, 38, 40). Il pulsante Salva tutte si abiliterà quando modifichi le taglie.</p>
                 </div>
                   </div>
 

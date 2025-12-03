@@ -327,8 +327,8 @@ export default function ShippingInfoPage() {
 
   async function upsertUserInfo(payload: Record<string, unknown>) {
     let docId = (userInfo as unknown as { $id?: string })?.$id;
-    let userId = user?.$id;
-    
+    const userId = user?.$id;
+
     if (!docId && userId) {
       try {
         const { data: existing } = await supabase
