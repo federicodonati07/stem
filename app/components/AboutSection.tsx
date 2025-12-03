@@ -7,23 +7,23 @@ const AboutSection = () => {
   const values = [
     {
       icon: Heart,
-      title: 'Passione per la qualità',
-      description: 'Ogni sticker è realizzato con materiali premium e attenzione ai dettagli'
+      title: 'Clienti al centro',
+      description: 'Supporto rapido, ordini tracciabili e un team dedicato alla tua esperienza.'
     },
     {
       icon: Users,
-      title: 'Community creativa',
-      description: 'Una piattaforma dove artisti e creativi condividono le loro idee'
+      title: 'Affidabilità nel tempo',
+      description: 'Una base solida di clienti che torna ad acquistare e consiglia il servizio.'
     },
     {
       icon: Award,
-      title: 'Eccellenza nel design',
-      description: 'Design unici e innovativi che si distinguono dalla massa'
+      title: 'Qualità costante',
+      description: 'Selezione accurata dei prodotti e controlli qualità su ogni ordine.'
     },
     {
       icon: Zap,
-      title: 'Innovazione continua',
-      description: 'Sempre al passo con le ultime tendenze e tecnologie'
+      title: 'Processi semplici',
+      description: 'Percorsi di acquisto chiari, pagamenti sicuri e aggiornamenti in tempo reale.'
     }
   ];
 
@@ -39,13 +39,14 @@ const AboutSection = () => {
           className="text-center mb-16"
         >
           <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
-            La nostra{' '}
+            Perché scegliere{' '}
             <span className="bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-              filosofia
+              Stem
             </span>
           </h2>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Stem nasce dalla convinzione che ogni idea meriti di essere trasformata in qualcosa di tangibile e bello
+            Una piattaforma pensata per rendere l&apos;acquisto semplice, chiaro e affidabile,
+            con numeri e risultati concreti alle spalle.
           </p>
         </motion.div>
 
@@ -58,22 +59,20 @@ const AboutSection = () => {
             viewport={{ once: true }}
           >
             <h3 className="text-2xl font-bold text-gray-900 mb-6">
-              La nostra storia
+              Un approccio concreto e trasparente
             </h3>
             <div className="space-y-4 text-gray-600">
               <p>
-                Fondata nel 2023, Stem è nata dall&apos;idea di democratizzare la creatività. 
-                Volevamo creare una piattaforma dove chiunque potesse trasformare le proprie 
-                idee in sticker e oggetti personalizzati di alta qualità.
+                Ogni scelta di prodotto, interfaccia e servizio è pensata per ridurre attriti
+                e incertezze durante il percorso di acquisto.
               </p>
               <p>
-                Oggi, migliaia di creativi, artisti e aziende si affidano a noi per 
-                materializzare le loro visioni. Ogni progetto che realizziamo è una 
-                testimonianza del potere della creatività umana.
+                Dalla pagina prodotto al carrello, fino al tracking dell&apos;ordine, 
+                puntiamo a rendere ogni passaggio chiaro, prevedibile e facile da comprendere.
               </p>
               <p>
-                La nostra missione è semplice: rendere la personalizzazione accessibile, 
-                divertente e di qualità premium per tutti.
+                L&apos;obiettivo è semplice: farti sentire sempre in controllo, con tutte 
+                le informazioni utili a portata di mano.
               </p>
             </div>
           </motion.div>
@@ -170,7 +169,7 @@ const AboutSection = () => {
           </motion.div>
         </div>
 
-        {/* Values */}
+          {/* Values */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -178,7 +177,7 @@ const AboutSection = () => {
           viewport={{ once: true }}
         >
           <h3 className="text-2xl font-bold text-gray-900 text-center mb-12">
-            I nostri valori
+            Cosa rende l&apos;esperienza chiara e affidabile
           </h3>
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
             {values.map((value, index) => (
@@ -219,19 +218,19 @@ const AboutSection = () => {
           <div className="grid md:grid-cols-4 gap-8 text-center">
             <div>
               <div className="text-3xl font-bold mb-2">10K+</div>
-              <div className="text-purple-100">Design creati</div>
+              <div className="text-purple-100">Ordini gestiti</div>
             </div>
             <div>
               <div className="text-3xl font-bold mb-2">5K+</div>
               <div className="text-purple-100">Clienti soddisfatti</div>
             </div>
             <div>
-              <div className="text-3xl font-bold mb-2">50+</div>
-              <div className="text-purple-100">Paesi serviti</div>
+              <div className="text-3xl font-bold mb-2">48h</div>
+              <div className="text-purple-100">Tempo medio di preparazione</div>
             </div>
             <div>
-              <div className="text-3xl font-bold mb-2">99%</div>
-              <div className="text-purple-100">Soddisfazione clienti</div>
+              <div className="text-3xl font-bold mb-2">4.8/5</div>
+              <div className="text-purple-100">Valutazione media servizio</div>
             </div>
           </div>
         </motion.div>

@@ -7,13 +7,11 @@ import { supabase, CARTS_DB, ORDERS_DB, PRODUCTS_DB, generateId } from "../../co
 
 type PurchasedItem = { uuid: string; personalized?: string; color?: string; quantity?: number; purchased?: boolean };
 type Consolidated = { uuid: string; personalized?: string; color?: string; quantity: number; purchased: true; unit_price: string };
-type EmailItem = { uuid: string; quantity: number; unit_price: string | number; color?: string; personalized?: string };
 
 export default function CheckoutSuccessPage() {
   const router = useRouter();
   const params = useSearchParams();
   const { user } = useAccount();
-  const [ok, setOk] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const didRunRef = React.useRef(false);
 
@@ -41,7 +39,8 @@ export default function CheckoutSuccessPage() {
         }
         
         if (existingOrders && existingOrders.length > 0) {
-          setOk(true);
+          // Ordine già creato, redirect diretto
+          router.push('/orders');
           return;
         }
 
@@ -152,30 +151,8 @@ export default function CheckoutSuccessPage() {
           console.error('Error updating cart:', updateError);
         }
 
-        // 6) Invia email al cliente e all'admin
-        try {
-          const emailItems: EmailItem[] = Array.from(groupMap.values()).map((it) => ({ 
-            uuid: it.uuid, 
-            quantity: it.quantity, 
-            unit_price: it.unit_price, 
-            color: it.color, 
-            personalized: it.personalized 
-          }));
-          await fetch('/api/orders/send-emails', { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ 
-              order_uuid: orderId, 
-              user_uuid: user.$id, 
-              items: emailItems, 
-              total: orderTotal 
-            }) 
-          });
-        } catch (e) {
-          console.error('Error sending emails:', e);
-        }
-
-        setOk(true);
+        // 6) Redirect automatico alla pagina ordini
+        router.push('/orders');
       } catch (e) {
         console.error('Error finalizing order:', e);
         setErr('Errore finalizzazione ordine');
@@ -184,23 +161,29 @@ export default function CheckoutSuccessPage() {
   }, [params, user]);
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-gray-50 to-white flex items-center justify-center px-4">
-      <div className="bg-white rounded-2xl border border-gray-200 p-8 max-w-md w-full text-center">
-        {ok ? (
+    <main className="min-h-screen bg-gradient-to-br from-gray-50 via-purple-50 to-blue-50 flex items-center justify-center px-4">
+      <div className="bg-white rounded-2xl border-2 border-gray-200 shadow-xl p-12 max-w-md w-full text-center">
+        {err ? (
           <>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Pagamento completato</h1>
-            <p className="text-gray-700 mb-6">Grazie per l&apos;ordine! A breve riceverai una conferma via email.</p>
-            <button className="h-11 px-6 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold" onClick={() => router.push('/orders')}>
-              Vai ai miei ordini
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+              <span className="text-3xl">⚠️</span>
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Errore</h1>
+            <p className="text-red-600 mb-6 font-medium">{err}</p>
+            <button 
+              className="h-12 px-6 rounded-xl border-2 border-gray-300 hover:bg-gray-50 font-semibold transition-all" 
+              onClick={() => router.push('/cart')}
+            >
+              Torna al carrello
             </button>
           </>
         ) : (
           <>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Stiamo finalizzando…</h1>
-            {err ? <p className="text-red-600 mb-6">{err}</p> : <p className="text-gray-700 mb-6">Attendere qualche secondo…</p>}
-            <button className="h-11 px-6 rounded-full border border-gray-300" onClick={() => router.push('/cart')}>
-              Torna al carrello
-            </button>
+            <div className="w-16 h-16 mx-auto mb-6 animate-spin">
+              <div className="w-full h-full border-4 border-purple-600 border-t-transparent rounded-full"></div>
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Finalizzazione ordine...</h1>
+            <p className="text-gray-600">Verrai reindirizzato tra pochi secondi</p>
           </>
         )}
       </div>

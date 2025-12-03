@@ -6,16 +6,22 @@ import { supabase, ORDERS_DB, PRODUCTS_DB } from "../components/auth/supabaseCli
 import { useAccount } from "../components/AccountContext";
 import { Button } from "@heroui/react";
 import Link from "next/link";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Package, Truck, CheckCircle, Clock, ShoppingBag, Copy, Check, type LucideIcon } from "lucide-react";
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { bg: string; text: string }> = {
-    pagato: { bg: 'bg-green-50', text: 'text-green-700' },
-    elaborazione: { bg: 'bg-yellow-50', text: 'text-yellow-700' },
-    spedito: { bg: 'bg-blue-50', text: 'text-blue-700' },
+  const map: Record<string, { bg: string; text: string; icon: LucideIcon; label: string }> = {
+    pagato: { bg: 'bg-green-100', text: 'text-green-700', icon: CheckCircle, label: ' Pagato' },
+    elaborazione: { bg: 'bg-amber-100', text: 'text-amber-700', icon: Clock, label: ' In elaborazione' },
+    spedito: { bg: 'bg-blue-100', text: 'text-blue-700', icon: Truck, label: ' Spedito' },
   };
-  const c = map[status] || { bg: 'bg-gray-100', text: 'text-gray-700' };
-  return <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${c.bg} ${c.text}`}>{status}</span>;
+  const c = map[status] || { bg: 'bg-gray-100', text: 'text-gray-700', icon: Package, label: status };
+  const Icon = c.icon;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold ${c.bg} ${c.text}`}>
+      <Icon size={16} />
+      {c.label}
+    </span>
+  );
 }
 
 export default function OrdersPage() {
@@ -75,8 +81,8 @@ export default function OrdersPage() {
         const items = Array.isArray(o.selected_products) ? o.selected_products : [];
         for (const s of items) {
           try {
-            const it = s;
-            if (it && typeof (it as any).uuid === 'string') uuids.add(String((it as any).uuid));
+            const it = s as { uuid?: string };
+            if (it && typeof it.uuid === 'string') uuids.add(String(it.uuid));
           } catch {}
         }
       }
@@ -124,28 +130,59 @@ export default function OrdersPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-gray-50 to-white py-12 px-4">
-      <div className="max-w-4xl mx-auto">
-        <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900">I miei ordini</h1>
-          <Link href="/#shop">
-            <Button className="rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white">Torna allo shop</Button>
-          </Link>
+    <main className="min-h-screen bg-gradient-to-br from-gray-50 via-purple-50 to-blue-50 py-10 px-4">
+      <div className="max-w-5xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-3">
+              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center shadow-lg">
+                <Package size={28} className="text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900">I miei ordini</h1>
+                <p className="text-sm text-gray-600">{orders.length} {orders.length === 1 ? 'ordine' : 'ordini'} trovato</p>
+              </div>
+            </div>
+            <Link href="/#shop">
+              <Button 
+                className="rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold shadow-lg hover:shadow-xl"
+                startContent={<ShoppingBag size={18} />}
+              >
+                Torna allo shop
+              </Button>
+            </Link>
+          </div>
         </div>
 
         {loading ? (
-          <div className="text-gray-600">Caricamento…</div>
+          <div className="bg-white rounded-2xl border-2 border-gray-200 p-12 text-center shadow-lg">
+            <div className="animate-spin w-12 h-12 border-4 border-purple-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+            <p className="text-gray-600 font-medium">Caricamento ordini…</p>
+          </div>
         ) : error ? (
-          <div className="text-red-600">{error}</div>
+          <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-8 text-center">
+            <p className="text-red-600 font-bold text-lg">⚠️ {error}</p>
+          </div>
         ) : orders.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center">
-            <p className="text-gray-700">Nessun ordine trovato.</p>
+          <div className="bg-white rounded-2xl border-2 border-gray-200 p-12 text-center shadow-lg">
+            <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+              <Package size={48} className="text-gray-400" />
+            </div>
+            <h3 className="text-2xl font-bold text-gray-900 mb-2">Nessun ordine</h3>
+            <p className="text-gray-600 mb-6">Non hai ancora effettuato ordini</p>
             <Link href="/#shop">
-              <Button className="mt-4 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white">Vai allo shop</Button>
+              <Button 
+                size="lg"
+                className="rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold shadow-lg"
+                startContent={<ShoppingBag size={20} />}
+              >
+                Vai allo shop
+              </Button>
             </Link>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-5">
             {orders.map((o) => {
               const items = Array.isArray(o.selected_products) ? o.selected_products : [];
               const parsed = items.map((s: unknown) => { try { return s; } catch { return null; } }).filter(Boolean) as Array<{ uuid?: string; quantity?: number; unit_price?: string | number; personalized?: string; color?: string }>;
@@ -166,32 +203,33 @@ export default function OrdersPage() {
                 orderTotal += unit * qty;
               }
               return (
-                <div key={o.id} className={`bg-white rounded-2xl border ${isOpen ? 'border-purple-300' : 'border-gray-200'} shadow-sm transition-colors`}>
-                  <button className="w-full p-5 flex items-center justify-between cursor-pointer hover:bg-gray-50" onClick={() => setOpen((m) => ({ ...m, [o.id]: !m[o.id] }))}>
-                    <div>
-                      <div className="text-sm text-gray-600">Ordine <span className="font-semibold text-gray-900">{o.order_uuid || o.id}</span>
+                <div key={o.id} className={`bg-white rounded-2xl border-2 shadow-lg transition-all duration-300 ${isOpen ? 'border-purple-400 shadow-purple-200' : 'border-gray-200 hover:border-purple-200 hover:shadow-xl'}`}>
+                  <button className="w-full p-6 cursor-pointer transition-all" onClick={() => setOpen((m) => ({ ...m, [o.id]: !m[o.id] }))}>
+                    <div className="flex items-start justify-between gap-6">
+                      {/* Left: Order Info */}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center shadow-md">
+                            <Package size={20} className="text-white" />
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Ordine</p>
+                            <p className="font-bold text-gray-900 text-base">#{o.order_uuid || o.id}</p>
+                          </div>
+                        </div>
+
+                        {/* Tracking Info */}
                         {String(o.status || '').toLowerCase()==='spedito' && o.spedition_info ? (
-                          <span className="ml-2 inline-flex items-center align-middle text-xs font-medium text-blue-700">
-                            <span>DHL Tracking Number</span>
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              aria-label="Copia numero tracking DHL"
-                              className={`ml-1 inline-flex items-center px-2 py-0.5 rounded-full ${copied[o.id] ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'} cursor-pointer select-none`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                const raw = String(o.spedition_info);
-                                const val = raw.includes(':') ? raw.split(':').slice(1).join(':').trim() : raw;
-                                navigator.clipboard?.writeText(val).then(() => {
-                                  setCopied((m) => ({ ...m, [o.id]: true }));
-                                  setTimeout(() => {
-                                    setCopied((m) => ({ ...m, [o.id]: false }));
-                                  }, 1200);
-                                }).catch(() => {});
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
+                          <div className="mb-4 p-3 bg-blue-50 border-2 border-blue-200 rounded-xl">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <Truck size={18} className="text-blue-600" />
+                                <span className="text-sm font-bold text-blue-900">Tracking DHL</span>
+                              </div>
+                              <button
+                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-mono text-sm font-bold transition-all ${copied[o.id] ? 'bg-green-500 text-white' : 'bg-white text-blue-700 hover:bg-blue-100 border border-blue-300'}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   e.preventDefault();
                                   const raw = String(o.spedition_info);
                                   const val = raw.includes(':') ? raw.split(':').slice(1).join(':').trim() : raw;
@@ -199,73 +237,151 @@ export default function OrdersPage() {
                                     setCopied((m) => ({ ...m, [o.id]: true }));
                                     setTimeout(() => {
                                       setCopied((m) => ({ ...m, [o.id]: false }));
-                                    }, 1200);
+                                    }, 1500);
                                   }).catch(() => {});
-                                }
-                              }}
-                            >
-                              {(() => {
-                                if (copied[o.id]) return 'Copiato!';
-                                const raw = String(o.spedition_info);
-                                const val = raw.includes(':') ? raw.split(':').slice(1).join(':').trim() : raw;
-                                return val;
-                              })()}
-                            </span>
-                          </span>
+                                }}
+                              >
+                                {copied[o.id] ? (
+                                  <>
+                                    <Check size={16} />
+                                    Copiato!
+                                  </>
+                                ) : (
+                                  <>
+                                    {(() => {
+                                      const raw = String(o.spedition_info);
+                                      return raw.includes(':') ? raw.split(':').slice(1).join(':').trim() : raw;
+                                    })()}
+                                    <Copy size={14} />
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
                         ) : (String(o.status || '').toLowerCase()!=='spedito' ? (
-                          <span className="ml-2 inline-flex items-center align-middle px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700 text-[11px] font-medium">
-                            Appena spedito potrai trackarlo con il numero DHL
-                          </span>
+                          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                            <p className="text-xs text-amber-700 font-medium flex items-center gap-2">
+                              <Clock size={14} />
+                              Il tracking DHL sarà disponibile una volta spedito l&apos;ordine
+                            </p>
+                          </div>
                         ) : null)}
+
+                        {/* Progress Bar */}
+                        <div className="space-y-2">
+                          <div className="h-3 bg-gray-200 rounded-full overflow-hidden shadow-inner">
+                            <div 
+                              className="h-full bg-gradient-to-r from-purple-600 via-purple-500 to-blue-600 transition-all duration-500 rounded-full" 
+                              style={{ width: `${percent}%` }} 
+                            />
+                          </div>
+                          
+                          {/* Steps */}
+                          <div className="flex items-center justify-between px-1">
+                            {steps.map((s, i) => (
+                              <div key={s} className="flex flex-col items-center gap-1">
+                                <div className={`w-3 h-3 rounded-full transition-all ${i <= idx ? 'bg-purple-600 shadow-md scale-110' : 'bg-gray-300'}`} />
+                                <span className={`text-xs font-medium ${i <= idx ? 'text-purple-700' : 'text-gray-500'}`}>
+                                  {s}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                      <div className="mt-2">
-                        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                          <div className="h-full bg-gradient-to-r from-purple-600 to-blue-600" style={{ width: `${percent}%` }} />
+
+                      {/* Right: Price and Status */}
+                      <div className="flex flex-col items-end gap-3">
+                        <div className="text-right">
+                          <p className="text-xs text-gray-500 font-medium mb-1">Totale</p>
+                          <p className="text-2xl font-bold text-transparent bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text">
+                            €{orderTotal.toFixed(2)}
+                          </p>
                         </div>
-                        <div className="mt-1 flex items-center justify-between">
-                          {steps.map((s, i) => (
-                            <span key={`dot-${s}`} className={`w-2.5 h-2.5 rounded-full ${i <= idx ? 'bg-purple-600' : 'bg-gray-300'}`} />
-                          ))}
-                        </div>
-                        <div className="mt-2 flex items-center justify-between text-[11px] text-gray-600">
-                          {steps.map((s, i) => (
-                            <span key={s} className={`${i <= idx ? 'text-purple-700 font-semibold' : ''}`}>{s}</span>
-                          ))}
+                        <StatusBadge status={String(o.status || 'pagato')} />
+                        <div className={`w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+                          <ChevronDown size={20} className="text-gray-600" />
                         </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-sm font-bold text-gray-900 whitespace-nowrap">{formatEur(orderTotal)}</div>
-                      <StatusBadge status={String(o.status || 'pagato')} />
-                      <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                     </div>
                   </button>
                   {isOpen && (
-                    <div className="px-5 pb-5">
-                      <div className="divide-y divide-gray-100">
-                        {parsed.map((it, idx2: number) => (
-                          <div key={idx2} className="py-3 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <img src={`/api/media/products/${it.uuid}`} alt={String(it.uuid)} className="w-12 h-12 rounded-lg object-cover border" onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = '/window.svg'; }} />
-                              <div className="text-sm text-gray-700">
-                                <div className="font-medium text-gray-900">{productsMap[it.uuid || '']?.name || `Prodotto ${it.uuid}`}</div>
-                                <div className="flex items-center gap-2">
-                                  {it.personalized ? (
-                                    <span className="px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-xs">{String(it.personalized).startsWith('/api/media/products/') ? 'Immagine' : `Testo: "${String(it.personalized).slice(0, 16)}${String(it.personalized).length > 16 ? '…' : ''}"`}</span>
-                                  ) : null}
-                                  {it.color ? <span className="inline-flex items-center gap-1 text-xs text-gray-700">Colore <span className="w-3 h-3 rounded-full border" style={{ backgroundColor: it.color }} /></span> : null}
-                                  {it.unit_price ? <span className="text-xs text-gray-700">Prezzo: €{Number(it.unit_price).toFixed(2)} /EUR</span> : null}
+                    <div className="px-6 pb-6 pt-2 border-t-2 border-gray-100">
+                      <div className="mb-4">
+                        <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3 flex items-center gap-2">
+                          <ShoppingBag size={16} />
+                          Prodotti ({parsed.length})
+                        </h4>
+                      </div>
+                      <div className="space-y-3">
+                        {parsed.map((it, idx2: number) => {
+                          const itemTotal = ((Number(it.unit_price) || 0) * (Number(it.quantity) || 0));
+                          return (
+                            <div key={idx2} className="bg-gradient-to-br from-gray-50 to-white rounded-xl border-2 border-gray-200 p-4 hover:shadow-md transition-all">
+                              <div className="flex items-start gap-4">
+                                {/* Image */}
+                                <img 
+                                  src={`/api/media/products/${it.uuid}`} 
+                                  alt={String(it.uuid)} 
+                                  className="w-20 h-20 rounded-xl object-cover border-2 border-gray-200 shadow-sm" 
+                                  onError={(e) => { 
+                                    (e.currentTarget as HTMLImageElement).onerror = null; 
+                                    (e.currentTarget as HTMLImageElement).src = '/window.svg'; 
+                                  }} 
+                                />
+                                
+                                {/* Product Info */}
+                                <div className="flex-1 min-w-0">
+                                  <h5 className="font-bold text-gray-900 text-base mb-2 line-clamp-2">
+                                    {productsMap[it.uuid || '']?.name || `Prodotto ${it.uuid}`}
+                                  </h5>
+                                  
+                                  {/* Tags */}
+                                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                                    {it.personalized && (
+                                      <span className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 text-xs font-bold">
+                                        ✨ {(String(it.personalized).startsWith('/api/media/products/') || String(it.personalized).startsWith('client_customization/')) ? 'Immagine personalizzata' : `"${String(it.personalized).slice(0, 20)}${String(it.personalized).length > 20 ? '…' : ''}"`}
+                                      </span>
+                                    )}
+                                    {it.color && (
+                                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-semibold">
+                                        <span className="w-4 h-4 rounded-full border-2 border-white shadow-sm" style={{ backgroundColor: it.color }} />
+                                        Colore
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Price Info */}
+                                  <div className="flex items-center gap-3 text-sm">
+                                    <span className="text-gray-600">Prezzo unitario: <span className="font-semibold text-gray-900">€{Number(it.unit_price || 0).toFixed(2)}</span></span>
+                                    <span className="text-gray-400">•</span>
+                                    <span className="text-gray-600">Quantità: <span className="font-semibold text-gray-900">×{it.quantity || 1}</span></span>
+                                  </div>
+                                </div>
+
+                                {/* Total Price */}
+                                <div className="text-right">
+                                  <p className="text-xs text-gray-500 mb-1">Subtotale</p>
+                                  <p className="text-xl font-bold text-transparent bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text">
+                                    €{itemTotal.toFixed(2)}
+                                  </p>
                                 </div>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <div className="text-sm font-semibold text-gray-900">x{it.quantity || 1}</div>
-                              {it.unit_price ? (
-                                <div className="text-xs text-gray-600">Tot: €{((Number(it.unit_price) || 0) * (Number(it.quantity) || 0)).toFixed(2)} /EUR</div>
-                              ) : null}
-                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Order Total Summary */}
+                      <div className="mt-5 pt-5 border-t-2 border-gray-200">
+                        <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-xl p-4 border-2 border-purple-200">
+                          <div className="flex items-center justify-between">
+                            <span className="text-base font-bold text-gray-900">Totale ordine</span>
+                            <span className="text-2xl font-bold text-transparent bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text">
+                              {formatEur(orderTotal)}
+                            </span>
                           </div>
-                        ))}
+                        </div>
                       </div>
                     </div>
                   )}

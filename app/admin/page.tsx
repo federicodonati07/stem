@@ -1,7 +1,7 @@
 "use client";
 
 import { useAccount } from "../components/AccountContext";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { 
   Loader2, 
@@ -15,9 +15,16 @@ import {
   X,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   Copy,
   Check,
-  Download
+  Download,
+  Mail,
+  Truck,
+  User,
+  Calendar,
+  FileText,
+  Image as ImageIcon
 } from "lucide-react";
 import { Button, Input } from "@heroui/react";
 import Link from "next/link";
@@ -57,6 +64,17 @@ type OrderDoc = {
   products?: OrderItemDoc[] | unknown[];
   userUuid?: string;
   bill?: number | string;
+  // User info fields
+  userInfo?: {
+    name_surname?: string;
+    email?: string;
+    phone_number?: string;
+    apartment_number?: string;
+    nation?: string;
+    state?: string;
+    postal_code?: string;
+    street_address?: string;
+  };
 };
 
 // Products types
@@ -154,7 +172,20 @@ export default function AdminDashboard() {
   // Admin order statuses and helpers
   const adminOrderStatuses = ['pagato', 'elaborazione', 'spedito', 'archiviato'] as const;
   type AdminOrderStatus = (typeof adminOrderStatuses)[number];
-  // nextAdminStatus removed (unused)
+  
+  // Navigate status forward/backward
+  function getNextStatus(current: string): AdminOrderStatus | null {
+    const idx = adminOrderStatuses.indexOf(current as AdminOrderStatus);
+    if (idx === -1 || idx === adminOrderStatuses.length - 1) return null;
+    return adminOrderStatuses[idx + 1];
+  }
+  
+  function getPrevStatus(current: string): AdminOrderStatus | null {
+    const idx = adminOrderStatuses.indexOf(current as AdminOrderStatus);
+    if (idx === -1 || idx === 0) return null;
+    return adminOrderStatuses[idx - 1];
+  }
+  
   const statusPillClass = (s: string) => {
     const st = String(s || '').toLowerCase();
     if (st === 'pagato') return 'bg-green-100 text-green-700';
@@ -286,8 +317,16 @@ export default function AdminDashboard() {
     } catch {}
   }
   function openPersonalization(personal: string) {
-    const isImg = personal.startsWith('/api/media/products/');
-    setPersModal({ type: isImg ? 'image' : 'text', value: personal });
+    const isImg = personal.startsWith('/api/media/products/') || personal.startsWith('client_customization/');
+    
+    // Convert storage path to API path for client customization images
+    let imageUrl = personal;
+    if (personal.startsWith('client_customization/')) {
+      const filename = personal.replace('client_customization/', '');
+      imageUrl = `/api/media/client-customization/${filename}`;
+    }
+    
+    setPersModal({ type: isImg ? 'image' : 'text', value: imageUrl });
     setPersModalOpen(true);
   }
 
@@ -312,8 +351,21 @@ export default function AdminDashboard() {
         setUserModalError('Utente non trovato');
         return;
       }
+      // Get email from API endpoint (uses service role key)
+      let userEmail = '';
+      try {
+        const res = await fetch(`/api/admin/user-email?uuid=${encodeURIComponent(userUuid)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.email) userEmail = data.email;
+        }
+      } catch (e) {
+        console.error('Error fetching user email:', e);
+      }
+      
       const data: UserInfo = {
         name_surname: String(doc.name_surname ?? ''),
+        email: userEmail,
         phone_number: String(doc.phone_number ?? ''),
         street_address: String(doc.street_address ?? ''),
         apartment_number: String(doc.apartment_number ?? ''),
@@ -414,8 +466,8 @@ export default function AdminDashboard() {
     }
 
     return {
-      $id: String(d.$id || ''),
-      $createdAt: typeof d.$createdAt === 'string' ? d.$createdAt : undefined,
+      $id: String(d.id || ''),
+      $createdAt: typeof d.created_at === 'string' ? d.created_at : (typeof d.$createdAt === 'string' ? d.$createdAt : undefined),
       orderId: (getFirstString(d, ['order_uuid', 'order_id', 'orderCode']) || id),
       customerName: customer,
       customerEmail: email,
@@ -512,9 +564,82 @@ export default function AdminDashboard() {
         }
       }
       
-      // Enrich user email from Auth using userUuid - For Supabase we can query auth directly
-      // For now, we skip this as it requires service role key in client
-      // Alternative: add email to orders table when creating order
+      // Enrich user info from user_info table
+      if (mapped.length > 0) {
+        const userUuids = new Set<string>();
+        for (const o of mapped) {
+          if (o.userUuid) userUuids.add(o.userUuid);
+        }
+        if (userUuids.size > 0) {
+          try {
+            const { data: usersData, error: usersError } = await supabase
+              .from(USER_COLLECTION)
+              .select('uuid, name_surname, phone_number, apartment_number, nation, state, postal_code, street_address')
+              .in('uuid', Array.from(userUuids))
+              .limit(200);
+            
+            if (!usersError && usersData) {
+              const userByUuid: Record<string, any> = {};
+              for (const u of usersData) {
+                if (u.uuid) userByUuid[String(u.uuid)] = u;
+              }
+              
+              // Get emails from API endpoint (uses service role key)
+              const emailByUuid: Record<string, string> = {};
+              try {
+                const emailPromises = Array.from(userUuids).map(async (uuid) => {
+                  try {
+                    const res = await fetch(`/api/admin/user-email?uuid=${encodeURIComponent(uuid)}`);
+                    if (res.ok) {
+                      const data = await res.json();
+                      if (data.email) {
+                        return { uuid, email: data.email };
+                      }
+                    }
+                  } catch (e) {
+                    console.error(`Error fetching email for ${uuid}:`, e);
+                  }
+                  return null;
+                });
+                const emailResults = await Promise.all(emailPromises);
+                for (const result of emailResults) {
+                  if (result) {
+                    emailByUuid[result.uuid] = result.email;
+                  }
+                }
+              } catch (e) {
+                console.error('Error fetching user emails:', e);
+              }
+              
+              // Enrich orders with user info
+              for (const o of mapped) {
+                if (o.userUuid && userByUuid[o.userUuid]) {
+                  o.userInfo = {
+                    name_surname: userByUuid[o.userUuid].name_surname,
+                    email: emailByUuid[o.userUuid],
+                    phone_number: userByUuid[o.userUuid].phone_number,
+                    apartment_number: userByUuid[o.userUuid].apartment_number,
+                    nation: userByUuid[o.userUuid].nation,
+                    state: userByUuid[o.userUuid].state,
+                    postal_code: userByUuid[o.userUuid].postal_code,
+                    street_address: userByUuid[o.userUuid].street_address,
+                  };
+                  // Update customerName and customerEmail if not set
+                  if (!o.customerName && o.userInfo.name_surname) {
+                    o.customerName = o.userInfo.name_surname;
+                  }
+                  if (!o.customerEmail && o.userInfo.email) {
+                    o.customerEmail = o.userInfo.email;
+                  }
+                }
+              }
+              console.log('[admin/orders] enriched user info for', userUuids.size, 'users');
+            }
+          } catch (e) {
+            console.error('[admin/orders] Error enriching user info:', e);
+          }
+        }
+      }
       
       // Auto-archive: orders shipped over 2 months ago -> archiviato
       try {
@@ -604,14 +729,26 @@ export default function AdminDashboard() {
 
       setOrdersTotalAll(totalOrders);
       setRevenueTotal(totalRevenue);
-      setOrdersSeries(dayKeys.map((k) => ({ date: k, value: dayOrderCount[k] })));
-      setRevenueSeries(dayKeys.map((k) => ({ date: k, value: dayRevenue[k] })));
+      
+      // Convert to cumulative data for charts (like users chart)
+      const cumulativeOrders: Array<{ date: string; value: number }> = [];
+      const cumulativeRevenue: Array<{ date: string; value: number }> = [];
+      let runningOrders = 0;
+      let runningRevenue = 0;
+      for (const k of dayKeys) {
+        runningOrders += dayOrderCount[k];
+        runningRevenue += dayRevenue[k];
+        cumulativeOrders.push({ date: k, value: runningOrders });
+        cumulativeRevenue.push({ date: k, value: runningRevenue });
+      }
+      setOrdersSeries(cumulativeOrders);
+      setRevenueSeries(cumulativeRevenue);
 
       const q = ordersSearch.trim().toLowerCase();
       let filtered = mapped;
       if (q) {
         filtered = filtered.filter((o) => {
-          const hay = [o.orderId, o.customerName, o.customerEmail, o.status, ...(o.items || []).map((i) => (i as OrderItemDoc).name || '')]
+          const hay = [o.$id, o.orderId, o.customerName, o.customerEmail, o.status, ...(o.items || []).map((i) => (i as OrderItemDoc).name || '')]
             .filter(Boolean)
             .join(' ')
             .toLowerCase();
@@ -1173,42 +1310,69 @@ export default function AdminDashboard() {
           <div className="p-6">
             {activeTab === 'orders' && (
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Gestione Ordini</h3>
-                <div className="flex items-center justify-between mb-4 gap-3">
-                  <div className="relative w-80">
-                    <Search size={16} className="text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <div className="mb-6">
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Gestione Ordini</h3>
+                  <p className="text-sm text-gray-600">{orders.length} {orders.length === 1 ? 'ordine' : 'ordini'} {statusFilter ? `con stato "${statusFilter}"` : 'totali'}</p>
+                </div>
+                
+                {/* Search and Filters */}
+                <div className="mb-6 space-y-4">
+                  <div className="relative">
+                    <Search size={18} className="text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
-                      placeholder="Cerca per ID, cliente, email, articolo..."
+                      placeholder="🔍 Cerca per ID (ORD-XX), UUID, cliente, email o articolo..."
                       value={ordersSearch}
                       onChange={(e) => setOrdersSearch(e.target.value)}
-                      className={searchInputBase + " pl-9"}
+                      className="w-full h-12 pl-12 pr-4 border-2 border-gray-200 rounded-xl bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition-all"
                     />
                   </div>
-                  <div className="flex items-center gap-2">
+                  
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-sm font-semibold text-gray-700">Filtra per stato:</span>
                     {(['pagato','elaborazione','spedito','archiviato'] as const).map((s) => (
                       <button
                         key={s}
                         type="button"
-                        className={`h-9 px-3 rounded-full text-sm font-medium border ${statusFilter === s ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                        className={`h-10 px-5 rounded-xl text-sm font-semibold border-2 transition-all ${
+                          statusFilter === s 
+                            ? 'bg-purple-600 text-white border-purple-600 shadow-lg' 
+                            : 'bg-white text-gray-700 border-gray-300 hover:border-purple-400'
+                        }`}
                         onClick={() => setStatusFilter(prev => prev === s ? null : s)}
                       >
-                        {s}
+                        {s.charAt(0).toUpperCase() + s.slice(1)}
                       </button>
                     ))}
+                    {statusFilter && (
+                      <button
+                        type="button"
+                        className="h-10 px-4 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all"
+                        onClick={() => setStatusFilter(null)}
+                      >
+                        ✕ Cancella
+                      </button>
+                    )}
                   </div>
-                  {ordersLoading ? <span className="text-sm text-gray-500">Caricamento...</span> : null}
-                  {ordersError ? <span className="text-sm text-red-600">{ordersError}</span> : null}
+                  
+                  {ordersLoading && <div className="flex items-center gap-2 text-purple-600"><Loader2 size={16} className="animate-spin" /> <span className="text-sm font-medium">Caricamento ordini...</span></div>}
+                  {ordersError && <div className="p-4 bg-red-50 border-2 border-red-200 rounded-xl text-red-700 font-medium">⚠️ {ordersError}</div>}
                 </div>
-                <div className="space-y-3 max-h-[520px] overflow-auto pr-1">
+                
+                <div className="space-y-4 max-h-[520px] overflow-auto pr-2">
                   {(!ordersLoading && !ordersError && orders.length === 0) && (
-                    <div className="p-4 bg-gray-50 border rounded-xl text-center text-gray-500">Nessun ordine trovato</div>
+                    <div className="p-12 bg-gradient-to-br from-gray-50 to-white border-2 border-gray-200 rounded-2xl text-center">
+                      <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+                        <Package size={40} className="text-gray-400" />
+                      </div>
+                      <p className="text-lg font-bold text-gray-900 mb-2">Nessun ordine trovato</p>
+                      <p className="text-sm text-gray-500">Gli ordini appariranno qui una volta effettuati</p>
+                    </div>
                   )}
                   {orders.map((o: OrderDoc) => {
-                    const id = o.orderId || o.$id;
+                    const dbId = o.$id; // ID database
+                    const orderUuid = o.orderId; // UUID ordine
                     const items: OrderItemDoc[] = Array.isArray(o.items) ? (o.items as OrderItemDoc[]) : [];
-                    // const preview = items[0]?.name || '-';
-                    // const more = Math.max((items.length || 0) - 1, 0);
                     // compute total from items if total field missing or empty
                     let computedTotal = 0;
                     for (const it of items) {
@@ -1216,121 +1380,255 @@ export default function AdminDashboard() {
                       const unit = Number(it.unitPrice ?? (it as unknown as { unit_price?: number }).unit_price ?? it.price ?? 0);
                       computedTotal += qty * unit;
                     }
-                    const expanded = expandedOrderId === id;
+                    const expanded = expandedOrderId === dbId;
                     const totalStr = typeof o.total === 'number' && o.total > 0 ? formatEuro(o.total) : formatEuro(computedTotal);
                     const status = String(o.status || '').toLowerCase();
                     const pillClass = statusPillClass(status);
                     return (
-                      <div key={id} className="bg-white rounded-xl border shadow-sm">
-                        <div className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50" onClick={() => setExpandedOrderId(expanded ? null : id)}>
-                          <div className="flex items-center gap-3">
-                            <span className="text-gray-500">{expanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}</span>
-                            <div>
-                              <p className="font-semibold text-gray-900 flex items-center gap-2 flex-wrap">
-                                <span><span className="text-gray-500">ORD-</span>{id}</span>
-                                {typeof o.speditionInfo === 'string' && o.speditionInfo.trim() ? (
-                                  <button
-                                    type="button"
-                                    className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100"
-                                    title="Modifica tracking"
-                                    onClick={(e) => { e.stopPropagation(); openShipModalFor(o.$id, id, true); }}
-                                  >
-                                    {o.speditionInfo}
-                                  </button>
-                                ) : null}
-                                {o.customerEmail ? (
-                                  <button
-                                    type="button"
-                                    className="text-xs text-purple-700 hover:underline"
-                                    onClick={(e) => { e.stopPropagation(); openUserModalByUuid(o.userUuid); }}
-                                    title="Vedi info spedizione"
-                                  >
-                                    {o.customerEmail}
-                                  </button>
-                                ) : null}
-                              </p>
-                              {(o.customerName || o.customer || o.name) ? (
-                                <p className="text-sm text-gray-600">{o.customerName || o.customer || o.name}</p>
-                              ) : null}
-                              <p className="text-xs text-gray-500">{new Date(o.$createdAt || Date.now()).toLocaleString('it-IT')}</p>
+                      <div key={dbId} className={`bg-white rounded-xl border-2 shadow-md transition-all duration-300 ${expanded ? 'border-purple-400 shadow-purple-200' : 'border-gray-200 hover:border-purple-300 hover:shadow-lg'}`}>
+                        <div className="p-4 cursor-pointer" onClick={() => setExpandedOrderId(expanded ? null : dbId)}>
+                          <div className="flex items-start justify-between gap-4">
+                            {/* Left: Order Info */}
+                            <div className="flex-1">
+                              <div className="flex items-start gap-3">
+                                {/* Order Icon - Color based on status */}
+                                <div className={`w-16 h-16 rounded-xl flex items-center justify-center shadow-lg transition-all ${
+                                  status === 'pagato' ? 'bg-gradient-to-br from-green-500 to-green-600' :
+                                  status === 'elaborazione' ? 'bg-gradient-to-br from-amber-500 to-orange-600' :
+                                  status === 'spedito' ? 'bg-gradient-to-br from-blue-500 to-blue-600' :
+                                  status === 'archiviato' ? 'bg-gradient-to-br from-gray-500 to-gray-600' :
+                                  'bg-gradient-to-br from-gray-700 to-gray-900'
+                                }`}>
+                                  <Package size={32} className="text-white" strokeWidth={2.5} />
                             </div>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <div className="relative" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                type="button"
-                                className={`px-3 py-1 rounded-full text-xs font-semibold ${pillClass} ${updatingStatus[o.$id] ? 'opacity-60' : 'hover:opacity-90'} cursor-pointer`}
-                                onClick={() => setStatusMenuFor(prev => prev === o.$id ? null : o.$id)}
-                                disabled={!!updatingStatus[o.$id]}
-                                title="Modifica stato ordine"
-                              >
-                                {status || '—'}
-                              </button>
-                              {statusMenuFor === o.$id && (
-                                <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-50" role="menu" aria-label="Seleziona stato">
-                                  {adminOrderStatuses.map((s) => (
-                                    <button
-                                      key={s}
-                                      type="button"
-                                      className={`w-full text-left px-3 py-2 text-sm ${s === status ? 'bg-gray-50 font-semibold' : 'hover:bg-gray-50'} text-gray-800`}
-                                      onClick={async () => {
-                                        setStatusMenuFor(null);
-                                        if (s === 'spedito') {
-                                          await openShipModalFor(o.$id, o.orderId || o.$id, false);
-                                        } else {
-                                          await updateOrderStatus(o.$id, s);
-                                        }
-                                      }}
-                                    >
-                                      {s}
-                                    </button>
-                                  ))}
+                                
+                                {/* Order Details */}
+                                <div className="flex-1 min-w-0">
+                                  {/* Order ID and UUID */}
+                                  <div className="mb-2 flex items-center gap-2">
+                                    <p className="text-base font-bold text-gray-900">ORD-{dbId}</p>
+                                    {orderUuid && <p className="text-xs text-gray-400 font-mono">({orderUuid})</p>}
+                                  </div>
+                                  
+                                  {/* User Name and Status Toggle */}
+                                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                    {/* User Name - Clickable */}
+                                    {o.userInfo?.name_surname ? (
+                                      <button
+                                        type="button"
+                                        className="flex items-center gap-1.5 text-sm font-bold text-purple-700 hover:text-purple-900 hover:underline cursor-pointer"
+                                        onClick={(e) => { e.stopPropagation(); openUserModalByUuid(o.userUuid); }}
+                                        title="Clicca per vedere info cliente"
+                                      >
+                                        <User size={14} />
+                                        {o.userInfo.name_surname}
+                                      </button>
+                                    ) : (
+                                      <p className="text-sm font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                                        <User size={14} />
+                                        Cliente
+                                      </p>
+                                    )}
+                                    
+                                    {/* Status Toggle with Arrows */}
+                                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                      {/* Previous Status Button */}
+                                      <button
+                                        type="button"
+                                        className={`p-1 rounded transition-all ${getPrevStatus(status) ? 'hover:bg-gray-200 text-gray-700 cursor-pointer' : 'text-gray-300 cursor-not-allowed'}`}
+                                        onClick={async () => {
+                                          const prev = getPrevStatus(status);
+                                          if (prev) {
+                                            await updateOrderStatus(o.$id, prev);
+                                          }
+                                        }}
+                                        disabled={!getPrevStatus(status) || !!updatingStatus[o.$id]}
+                                        title="Stato precedente"
+                                      >
+                                        <ChevronLeft size={14} />
+                                      </button>
+                                      
+                                      {/* Current Status */}
+                                      <div className={`px-3 py-1 rounded-lg text-xs font-bold ${pillClass} border-2 ${updatingStatus[o.$id] ? 'opacity-60' : ''}`}>
+                                        {status ? status.charAt(0).toUpperCase() + status.slice(1) : '—'}
+                                      </div>
+                                      
+                                      {/* Next Status Button */}
+                                      <button
+                                        type="button"
+                                        className={`p-1 rounded transition-all ${getNextStatus(status) ? 'hover:bg-gray-200 text-gray-700 cursor-pointer' : 'text-gray-300 cursor-not-allowed'}`}
+                                        onClick={async () => {
+                                          const next = getNextStatus(status);
+                                          if (next) {
+                                            if (next === 'spedito') {
+                                              await openShipModalFor(o.$id, orderUuid || dbId, false);
+                                            } else {
+                                              await updateOrderStatus(o.$id, next);
+                                            }
+                                          }
+                                        }}
+                                        disabled={!getNextStatus(status) || !!updatingStatus[o.$id]}
+                                        title="Stato successivo"
+                                      >
+                                        <ChevronRight size={14} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Email */}
+                                  {o.customerEmail && (
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                      <Mail size={12} className="text-gray-400" />
+                                      <button
+                                        type="button"
+                                        className="text-xs text-purple-700 hover:text-purple-900 font-medium hover:underline"
+                                        onClick={(e) => { e.stopPropagation(); openUserModalByUuid(o.userUuid); }}
+                                        title="Vedi info spedizione cliente"
+                                      >
+                                        {o.customerEmail}
+                                      </button>
+                                    </div>
+                                  )}
+                                  
+                                  {/* Tracking Info */}
+                                  {typeof o.speditionInfo === 'string' && o.speditionInfo.trim() && (
+                                    <div className="flex items-center gap-2">
+                                      <Truck size={14} className="text-blue-600" />
+                                      <button
+                                        type="button"
+                                        className="px-2 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-bold hover:bg-blue-100 border border-blue-200"
+                                        title="Modifica tracking"
+                                        onClick={(e) => { e.stopPropagation(); openShipModalFor(o.$id, orderUuid || dbId, true); }}
+                                      >
+                                        {o.speditionInfo}
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
-                              )}
+                              </div>
                             </div>
-                            <span className="font-bold text-gray-900">{totalStr}</span>
+
+                            {/* Right: Total, Date and Expand */}
+                            <div className="flex items-center gap-3">
+                              {/* Total and Date */}
+                              <div className="text-right">
+                                <p className="text-xs text-gray-500 font-medium mb-0.5">Totale</p>
+                                <p className="text-lg font-bold text-transparent bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text mb-1">
+                                  {totalStr}
+                                </p>
+                                {/* Date moved here */}
+                                <div className="flex items-center justify-end gap-1">
+                                  <Calendar size={11} className="text-gray-400" />
+                                  <p className="text-xs text-gray-500">{new Date(o.$createdAt || Date.now()).toLocaleString('it-IT')}</p>
+                                </div>
+                              </div>
+                              
+                              {/* Expand/Collapse Button */}
+                              <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all ${expanded ? 'bg-purple-100 rotate-180' : 'bg-gray-100'}`}>
+                                <ChevronDown size={18} className={expanded ? 'text-purple-600' : 'text-gray-600'} />
+                              </div>
+                            </div>
                           </div>
                         </div>
                         {expanded && (
-                          <div className="px-4 pb-4">
-                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                              <h4 className="font-semibold text-gray-900 mb-3">Prodotti acquistati</h4>
-                              <div className="divide-y divide-gray-100">
-                                {items.map((it: OrderItemDoc, idx: number) => {
+                          <div className="px-4 pb-4 pt-4 border-t border-gray-200">
+                            {/* Customer Email - Clickable for shipping info */}
+                            {o.customerEmail && (
+                              <div className="mb-4 p-3 bg-blue-50 border-2 border-blue-200 rounded-lg">
+                                <div className="flex items-center gap-2">
+                                  <Mail size={18} className="text-blue-600" />
+                                  <span className="text-sm font-medium text-blue-900">Indirizzo di spedizione:</span>
+                                  <button
+                                    type="button"
+                                    className="text-base text-blue-700 hover:text-blue-900 font-bold hover:underline"
+                                    onClick={(e) => { e.stopPropagation(); openUserModalByUuid(o.userUuid); }}
+                                    title="Clicca per vedere le info di spedizione"
+                                  >
+                                    {o.customerEmail}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                            
+                            <div className="mb-3">
+                              <h4 className="text-sm font-bold text-gray-900 uppercase tracking-wide flex items-center gap-2">
+                                <ShoppingCart size={16} className="text-purple-600" />
+                                Prodotti ({items.length})
+                              </h4>
+                            </div>
+                            <div className="space-y-2">
+                              {items.map((it: OrderItemDoc, idx: number) => {
                                   const qty = Number(it.quantity ?? 1);
                                   const unit = Number(it.unitPrice ?? it.unit_price ?? it.price ?? 0);
                                   const personal = it.personalized ? String(it.personalized) : '';
-                                  const isImg = personal.startsWith('/api/media/products/');
+                                const isImg = personal.startsWith('/api/media/products/') || personal.startsWith('client_customization/');
                                   const imgSrc = it.uuid ? `/api/media/products/${String(it.uuid)}` : '';
+                                const itemTotal = qty * unit;
                                   return (
-                                    <div key={idx} className="py-3 flex items-center justify-between">
-                                      <div className="flex items-center gap-3">
+                                  <div key={idx} className="bg-white rounded-lg border-2 border-gray-200 p-3 hover:bg-gray-50 transition-all">
+                                    <div className="flex items-start gap-3">
+                                      {/* Product Image */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={imgSrc || `/api/media/products/${it.uuid}`} alt={it.uuid || 'item'} className="w-12 h-12 rounded-lg object-cover border" onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = '/window.svg'; }} />
-                                        <div className="text-sm text-gray-700">
-                                          <div className="font-medium text-gray-900">{it.name || `Prodotto ${it.uuid}`}</div>
-                                          <div className="flex items-center gap-2 flex-wrap">
-                                            {personal ? (
-                                              <button type="button" className="px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-xs hover:bg-purple-100"
-                                                onClick={(e) => { e.stopPropagation(); openPersonalization(personal); }} title="Vedi personalizzazione">
-                                                Articolo personalizzato · {isImg ? 'immagine' : 'testuale'}
-                                              </button>
-                                            ) : null}
-                                            {it.color ? <span className="inline-flex items-center gap-1 text-xs text-gray-700">Colore <span className="w-3 h-3 rounded-full border" style={{ backgroundColor: it.color }} /></span> : null}
-                                            {unit ? <span className="text-xs text-gray-700">Prezzo: {formatEuro(unit)}</span> : null}
-                                          </div>
+              <img src={imgSrc || `/api/media/products/${it.uuid}`} alt={it.uuid || 'item'} className="w-16 h-16 rounded-md object-cover border border-gray-200" onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = '/window.svg'; }} />
+                                      
+                                      {/* Product Info */}
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-start justify-between gap-2 mb-1.5">
+                                          <h5 className="font-bold text-gray-900 text-sm line-clamp-1 flex-1">
+                                            {it.name || `Prodotto ${it.uuid}`}
+                                          </h5>
+                                          <span className="text-base font-bold text-transparent bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text whitespace-nowrap">
+                                            {formatEuro(itemTotal)}
+                                          </span>
+                                        </div>
+
+                                        
+                                        {/* Compact Info Line */}
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span className="text-sm text-gray-700 font-medium">{formatEuro(unit)} × {qty}</span>
+                                          
+                                          {it.color && (
+                                            <>
+                                              <span className="text-gray-300">•</span>
+                                              <div className="inline-flex items-center gap-1.5">
+                                                <span className="w-5 h-5 rounded-full border-2 border-gray-300 shadow-sm" style={{ backgroundColor: it.color }} />
+                                                <span className="text-sm text-gray-700 font-medium">Colore</span>
+                                              </div>
+                                            </>
+                                          )}
+                                          
+                                          {personal && (
+                                            <>
+                                              <span className="text-gray-300">•</span>
+                                              {isImg ? (
+                                                <button
+                                                  type="button"
+                                                  className="inline-flex items-center gap-1 text-sm font-bold text-purple-700 hover:text-purple-900"
+                                                  onClick={(e) => { e.stopPropagation(); openPersonalization(personal); }}
+                                                  title="Vedi anteprima immagine personalizzata"
+                                                >
+                                                  <ImageIcon size={14} />
+                                                  Immagine
+                                                </button>
+                                              ) : (
+                                                <button
+                                                  type="button"
+                                                  className="inline-flex items-center gap-1 text-sm font-bold text-purple-700 hover:text-purple-900"
+                                                  onClick={(e) => { e.stopPropagation(); openPersonalization(personal); }}
+                                                  title={`Vedi testo: "${personal}"`}
+                                                >
+                                                  <FileText size={14} />
+                                                  &quot;{personal.slice(0, 20)}{personal.length > 20 ? '...' : ''}&quot;
+                                                </button>
+                                              )}
+                                            </>
+                                          )}
                                         </div>
                                       </div>
-                                      <div className="text-right">
-                                        <div className="text-sm font-semibold text-gray-900">x{qty}</div>
-                                        {unit ? (
-                                          <div className="text-xs text-gray-600">Tot: {formatEuro(qty * unit)}</div>
-                                        ) : null}
                                       </div>
                                     </div>
                                   );
                                 })}
-                              </div>
                             </div>
                           </div>
                         )}
@@ -1614,8 +1912,8 @@ export default function AdminDashboard() {
                       </div>
                       {pColorsArr.length > 0 ? (
                         <div className="mt-3 flex flex-wrap gap-2">
-                          {pColorsArr.map((c, idx) => (
-                            <span key={idx} className="inline-flex items-center gap-2 px-3 py-1 rounded-full border" style={{ borderColor: '#e5e7eb' }}>
+                          {pColorsArr.map((c) => (
+                            <span key={c} className="inline-flex items-center gap-2 px-3 py-1 rounded-full border" style={{ borderColor: '#e5e7eb' }}>
                               <span className="w-4 h-4 rounded-full border" style={{ backgroundColor: c }} />
                               <span className="text-sm text-gray-700">{c}</span>
                               <button type="button" className="text-gray-500 hover:text-red-600" onClick={() => setPColorsArr((prev) => prev.filter((x) => x !== c))}>×</button>
@@ -1686,9 +1984,9 @@ export default function AdminDashboard() {
                           <div>
                             <p className="text-xs text-gray-600 mb-2">Taglie selezionate:</p>
                             <div className="flex flex-wrap gap-2">
-                              {pSizesArr.map((s, idx) => (
+                              {pSizesArr.map((s) => (
                                 <span
-                                  key={idx}
+                                  key={s}
                                   className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-gray-300 bg-gray-50"
                                 >
                                   <span className="text-sm font-medium text-gray-900">{s}</span>
@@ -1930,85 +2228,129 @@ export default function AdminDashboard() {
         />
       )}
       {/* User shipping info modal */}
-      <Modal isOpen={userModalOpen} onOpenChange={setUserModalOpen} backdrop="opaque" placement="center">
-        <ModalContent className="bg-white shadow-2xl border border-gray-200 rounded-2xl">
+      <Modal isOpen={userModalOpen} onOpenChange={setUserModalOpen} backdrop="blur" placement="center" size="2xl">
+        <ModalContent className="bg-white shadow-2xl border-2 border-purple-200 rounded-2xl">
           {() => (
             <>
-              <ModalHeader className="flex items-center justify-between gap-2">
-                <h3 className="text-lg sm:text-xl font-bold text-gray-900">Informazioni utente</h3>
-                <span className="w-8" />
+              <ModalHeader className="flex items-center justify-between gap-2 bg-gradient-to-r from-purple-50 to-blue-50 border-b-2 border-purple-200 py-4 px-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center">
+                    <User size={20} className="text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900">Informazioni Cliente</h3>
+                    <p className="text-xs text-gray-600">Dati di spedizione e contatto</p>
+                  </div>
+                </div>
+                <Button 
+                  isIconOnly 
+                  variant="light" 
+                  className="rounded-full text-gray-600 hover:text-red-600" 
+                  onClick={() => setUserModalOpen(false)}
+                  aria-label="Chiudi"
+                >
+                  <X size={20} />
+                </Button>
               </ModalHeader>
-              <ModalBody>
+              <ModalBody className="py-6 px-6 max-h-[70vh] overflow-y-auto">
                 {userModalLoading ? (
                   <div className="py-6 text-center text-gray-600">Caricamento…</div>
                 ) : userModalError ? (
                   <div className="py-6 text-center text-red-600">{userModalError}</div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-6">
+                    {/* Dati Personali */}
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Nome e cognome</label>
-                      <div className="px-3 py-2 border border-gray-300 rounded-xl text-gray-900 font-semibold flex items-center justify-between">
-                        <span>{userModalData?.name_surname || '—'}</span>
-                        {userModalData?.name_surname ? (
-                          <button className="text-gray-600 hover:text-gray-900" title="Copia" onClick={() => copyValue('name_surname', userModalData?.name_surname)}>
-                            {copiedKey === 'name_surname' ? <Check size={16} /> : <Copy size={16} />}
-                          </button>
-                        ) : null}
+                      <h4 className="text-sm font-bold text-gray-900 uppercase tracking-wide mb-3 flex items-center gap-2">
+                        <User size={16} className="text-purple-600" />
+                        Dati Personali
+                      </h4>
+                      <div className="space-y-3">
+                        {/* Grid: Nome e Telefono */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1.5">Nome e Cognome</label>
+                            <div className="px-4 py-3 border-2 border-gray-200 rounded-lg text-gray-900 font-bold flex items-center justify-between bg-gradient-to-r from-gray-50 to-white">
+                              <span className="truncate">{userModalData?.name_surname || '—'}</span>
+                              {userModalData?.name_surname && (
+                                <button className="text-purple-600 hover:text-purple-800 ml-2" title="Copia" onClick={() => copyValue('name_surname', userModalData?.name_surname)}>
+                                  {copiedKey === 'name_surname' ? <Check size={18} className="text-green-600" /> : <Copy size={18} />}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1.5">Telefono</label>
+                            <div className="px-4 py-3 border-2 border-gray-200 rounded-lg text-gray-900 font-bold flex items-center justify-between bg-gradient-to-r from-gray-50 to-white">
+                              <span className="truncate">{userModalData?.phone_number || '—'}</span>
+                              {userModalData?.phone_number && (
+                                <button className="text-purple-600 hover:text-purple-800 ml-2" title="Copia" onClick={() => copyValue('phone', userModalData?.phone_number)}>
+                                  {copiedKey === 'phone' ? <Check size={18} className="text-green-600" /> : <Copy size={18} />}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        {/* Email (full width) */}
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1.5">Email</label>
+                          <div className="px-4 py-3 border-2 border-gray-200 rounded-lg text-gray-900 font-bold flex items-center justify-between bg-gradient-to-r from-gray-50 to-white">
+                            <span className="truncate">{userModalData?.email || '—'}</span>
+                            {userModalData?.email && (
+                              <button className="text-purple-600 hover:text-purple-800 ml-2" title="Copia" onClick={() => copyValue('email', userModalData?.email)}>
+                                {copiedKey === 'email' ? <Check size={18} className="text-green-600" /> : <Copy size={18} />}
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
+
+                    {/* Indirizzo di Spedizione */}
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Telefono</label>
-                      <div className="px-3 py-2 border border-gray-300 rounded-xl text-gray-900 font-semibold flex items-center justify-between">
-                        <span>{userModalData?.phone_number || '—'}</span>
-                        {userModalData?.phone_number ? (
-                          <button className="text-gray-600 hover:text-gray-900" title="Copia" onClick={() => copyValue('phone', userModalData?.phone_number)}>
-                            {copiedKey === 'phone' ? <Check size={16} /> : <Copy size={16} />}
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-xs text-gray-500 mb-1">Indirizzo</label>
-                      <div className="px-3 py-2 border border-gray-300 rounded-xl text-gray-900 font-semibold flex items-center justify-between">
-                        <span>{userModalData?.street_address || '—'}{userModalData?.apartment_number ? `, ${userModalData?.apartment_number}` : ''}</span>
-                        {userModalData?.street_address ? (
-                          <button className="text-gray-600 hover:text-gray-900" title="Copia" onClick={() => copyValue('address', `${userModalData?.street_address}${userModalData?.apartment_number ? `, ${userModalData?.apartment_number}` : ''}`)}>
-                            {copiedKey === 'address' ? <Check size={16} /> : <Copy size={16} />}
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Nazione</label>
-                      <div className="px-3 py-2 border border-gray-300 rounded-xl text-gray-900 font-semibold flex items-center justify-between">
-                        <span>{userModalData?.nation || '—'}</span>
-                        {userModalData?.nation ? (
-                          <button className="text-gray-600 hover:text-gray-900" title="Copia" onClick={() => copyValue('nation', userModalData?.nation)}>
-                            {copiedKey === 'nation' ? <Check size={16} /> : <Copy size={16} />}
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Regione/Stato</label>
-                      <div className="px-3 py-2 border border-gray-300 rounded-xl text-gray-900 font-semibold flex items-center justify-between">
-                        <span>{userModalData?.state || '—'}</span>
-                        {userModalData?.state ? (
-                          <button className="text-gray-600 hover:text-gray-900" title="Copia" onClick={() => copyValue('state', userModalData?.state)}>
-                            {copiedKey === 'state' ? <Check size={16} /> : <Copy size={16} />}
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">CAP</label>
-                      <div className="px-3 py-2 border border-gray-300 rounded-xl text-gray-900 font-semibold flex items-center justify-between">
-                        <span>{userModalData?.postal_code || '—'}</span>
-                        {userModalData?.postal_code ? (
-                          <button className="text-gray-600 hover:text-gray-900" title="Copia" onClick={() => copyValue('postal', userModalData?.postal_code)}>
-                            {copiedKey === 'postal' ? <Check size={16} /> : <Copy size={16} />}
-                          </button>
-                        ) : null}
+                      <h4 className="text-sm font-bold text-gray-900 uppercase tracking-wide mb-3 flex items-center gap-2">
+                        <Mail size={16} className="text-blue-600" />
+                        Indirizzo di Spedizione
+                      </h4>
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1.5">Indirizzo Completo</label>
+                          <div className="px-4 py-3 border-2 border-blue-200 rounded-lg text-gray-900 font-bold bg-blue-50">
+                            <p className="mb-1">{userModalData?.street_address || '—'}</p>
+                            {userModalData?.apartment_number && (
+                              <p className="text-sm text-gray-700">Appartamento/Interno: {userModalData.apartment_number}</p>
+                            )}
+                            {userModalData?.street_address && (
+                              <button 
+                                className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold transition-all" 
+                                title="Copia indirizzo completo" 
+                                onClick={() => copyValue('address', `${userModalData?.street_address}${userModalData?.apartment_number ? `, ${userModalData?.apartment_number}` : ''}`)}
+                              >
+                                {copiedKey === 'address' ? <><Check size={14} /> Copiato!</> : <><Copy size={14} /> Copia</>}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1.5">CAP</label>
+                            <div className="px-3 py-2 border-2 border-gray-200 rounded-lg text-gray-900 font-semibold bg-white text-center">
+                              {userModalData?.postal_code || '—'}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1.5">Stato/Regione</label>
+                            <div className="px-3 py-2 border-2 border-gray-200 rounded-lg text-gray-900 font-semibold bg-white text-center">
+                              {userModalData?.state || '—'}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1.5">Nazione</label>
+                            <div className="px-3 py-2 border-2 border-gray-200 rounded-lg text-gray-900 font-semibold bg-white text-center">
+                              {userModalData?.nation || '—'}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2022,40 +2364,65 @@ export default function AdminDashboard() {
         </ModalContent>
       </Modal>
       {/* Personalization modal */}
-      <Modal isOpen={persModalOpen} onOpenChange={setPersModalOpen} backdrop="opaque" placement="center">
-        <ModalContent className="bg-white shadow-2xl border border-gray-200 rounded-2xl">
+      <Modal isOpen={persModalOpen} onOpenChange={setPersModalOpen} backdrop="blur" placement="center" size="2xl">
+        <ModalContent className="bg-white shadow-2xl border-2 border-purple-200 rounded-2xl">
           {() => (
             <>
-              <ModalHeader className="flex items-center justify-between gap-2">
-                <h3 className="text-lg sm:text-xl font-bold text-gray-900">Personalizzazione</h3>
-                <span className="w-8" />
+              <ModalHeader className="flex items-center justify-between gap-2 bg-gradient-to-r from-purple-50 to-blue-50 border-b-2 border-purple-200 py-4 px-6">
+                <div className="flex items-center gap-3">
+                  {persModal?.type === 'image' ? <ImageIcon size={24} className="text-purple-600" /> : <FileText size={24} className="text-purple-600" />}
+                  <h3 className="text-xl font-bold text-gray-900">Personalizzazione {persModal?.type === 'image' ? 'Immagine' : 'Testo'}</h3>
+                </div>
+                <Button 
+                  isIconOnly 
+                  variant="light" 
+                  className="rounded-full text-gray-600 hover:text-red-600" 
+                  onClick={() => setPersModalOpen(false)}
+                  aria-label="Chiudi"
+                >
+                  <X size={20} />
+                </Button>
               </ModalHeader>
-              <ModalBody>
+              <ModalBody className="py-6 px-6">
                 {!persModal ? null : (
                   persModal.type === 'image' ? (
                     <div className="space-y-4">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={persModal.value} alt="personalized" className="w-full max-h-96 object-contain rounded-xl border border-gray-300" />
-                      <div className="flex justify-end">
-                        <a href={persModal.value} download className="inline-flex items-center gap-2 h-10 px-4 rounded-full bg-gray-900 text-white hover:bg-gray-800 font-semibold">
-                          <Download size={16} /> Scarica immagine
+                      <img src={persModal.value} alt="personalized" className="w-full max-h-96 object-contain rounded-xl border-2 border-gray-300 shadow-lg bg-gray-50" />
+                      <div className="flex justify-center">
+                        <a href={persModal.value} download className="inline-flex items-center gap-2 h-12 px-6 rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:shadow-lg font-bold transition-all">
+                          <Download size={18} /> Scarica immagine personalizzata
                         </a>
                       </div>
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      <div className="px-3 py-3 border border-gray-300 rounded-xl text-gray-900 font-semibold bg-gray-50">{persModal.value}</div>
-                      <div className="flex justify-end">
-                        <Button className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold" onClick={() => navigator.clipboard.writeText(persModal.value)}>
-                          <Copy size={16} /> Copia testo
+                      <div className="px-4 py-4 border-2 border-purple-200 rounded-xl text-gray-900 font-bold bg-gradient-to-br from-purple-50 to-white text-lg">
+                        &quot;{persModal.value}&quot;
+                      </div>
+                      <div className="flex justify-center">
+                        <Button 
+                          size="lg"
+                          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold shadow-lg hover:shadow-xl" 
+                          onClick={() => {
+                            navigator.clipboard.writeText(persModal.value);
+                            // Optional: show toast feedback
+                          }}
+                        >
+                          <Copy size={18} /> Copia testo personalizzato
                         </Button>
                       </div>
                     </div>
                   )
                 )}
               </ModalBody>
-              <ModalFooter>
-                <Button className="rounded-full" onClick={() => setPersModalOpen(false)}>Chiudi</Button>
+              <ModalFooter className="bg-gray-50 border-t-2 border-gray-200 py-4 px-6">
+                <Button 
+                  className="rounded-xl bg-gray-200 text-gray-700 font-semibold hover:bg-gray-300" 
+                  onClick={() => setPersModalOpen(false)}
+                >
+                  Chiudi
+                </Button>
               </ModalFooter>
             </>
           )}
@@ -2095,6 +2462,50 @@ function EditProductModal({ p, onClose, onUpdate, onUpdateImage, onDelete, busy 
   const [newColor, setNewColor] = useState<string>("#000000");
   const [sizes, setSizes] = useState<string[]>(Array.isArray(p?.sizes) ? p.sizes : []);
   const [newSize, setNewSize] = useState<string>("");
+  const [categories, setCategories] = useState<string[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+
+  // Fetch categories from database
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from(CATEGORIES_DB)
+          .select('name')
+          .order('name', { ascending: true });
+        
+        if (error) {
+          console.error('Error fetching categories:', error);
+          // Fallback categories
+          setCategories(['Stickers', 'Plate', 'Abbigliamento', 'Accessori', 'Gadget', 'Altro']);
+        } else {
+          const categoryNames = (data || []).map((cat: any) => String(cat.name)).filter(Boolean);
+          setCategories(categoryNames.length > 0 ? categoryNames : ['Altro']);
+        }
+      } catch (err) {
+        console.error('Unexpected error fetching categories:', err);
+        setCategories(['Stickers', 'Plate', 'Abbigliamento', 'Accessori', 'Gadget', 'Altro']);
+      } finally {
+        setCategoriesLoading(false);
+      }
+    })();
+  }, []);
+
+  // Helper to compare arrays
+  const arraysEqual = useCallback((a: string[], b: string[]) => {
+    if (a.length !== b.length) return false;
+    const sortedA = [...a].sort();
+    const sortedB = [...b].sort();
+    return sortedA.every((val, idx) => val === sortedB[idx]);
+  }, []);
+
+  const colorsChanged = useMemo(() => {
+    return !arraysEqual(colors, Array.isArray(p?.colors) ? p.colors : []);
+  }, [colors, p?.colors, arraysEqual]);
+
+  const sizesChanged = useMemo(() => {
+    return !arraysEqual(sizes, Array.isArray(p?.sizes) ? p.sizes : []);
+  }, [sizes, p?.sizes, arraysEqual]);
 
   async function getCroppedBlob(imageSrc: string, cropPx: { x: number; y: number; width: number; height: number } | null): Promise<Blob> {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -2115,206 +2526,455 @@ function EditProductModal({ p, onClose, onUpdate, onUpdateImage, onDelete, busy 
   }
 
   return (
-    <Modal isOpen={!!p} onOpenChange={(o) => { if (!o) onClose(); }} backdrop="opaque" placement="center">
+    <Modal 
+      isOpen={!!p} 
+      onOpenChange={(o) => { if (!o) onClose(); }} 
+      backdrop="opaque" 
+      size="5xl"
+      scrollBehavior="inside"
+      classNames={{
+        base: "max-w-7xl",
+        wrapper: "overflow-hidden"
+      }}
+    >
       <ModalContent className="bg-white shadow-2xl border border-gray-200 rounded-2xl">
         {() => (
           <>
-            <ModalHeader className="flex items-center justify-between gap-2">
+            <ModalHeader className="flex items-center justify-between gap-2 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-blue-50 sticky top-0 z-10">
               <Button isIconOnly variant="light" className="rounded-full text-gray-600 hover:text-red-600" onClick={onClose} aria-label="Chiudi">
-                <X size={18} />
+                <X size={20} />
               </Button>
-              <h3 className="text-lg sm:text-xl font-bold text-gray-900">Modifica prodotto</h3>
-              <span className="w-8" />
+              <h3 className="text-2xl font-bold text-gray-900">Modifica prodotto: <span className="text-purple-600">{p?.name}</span></h3>
+              <span className="w-10" />
             </ModalHeader>
-            <ModalBody className="max-h-[70vh] overflow-y-auto">
+            <ModalBody className="py-6 px-8 max-h-[75vh] overflow-y-auto">
               <div className="space-y-6">
                 {/* SEZIONE: Immagine del prodotto */}
-                <div className="bg-gradient-to-br from-purple-50 to-blue-50 border border-purple-200 rounded-xl p-4">
-                  <h4 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
-                    <span className="text-purple-600">📷</span> Immagine del prodotto
+                <div className="bg-gradient-to-br from-purple-50 to-blue-50 border-2 border-purple-200 rounded-xl p-6">
+                  <h4 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <span className="text-purple-600 text-2xl">📷</span> Immagine del prodotto
                   </h4>
-                  <div className="flex items-center gap-3">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={p?.img_url} alt={p?.name} className="w-20 h-20 rounded-lg object-cover border-2 border-white shadow-md" onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = '/window.svg'; }} />
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Seleziona nuova immagine</label>
-                      <p className="text-xs text-gray-500 mb-2">Formato PNG, massimo 50MB</p>
-                      <input type="file" accept=",.png" className="text-gray-900 text-sm" onChange={(e) => {
-                        const f = e.target.files?.[0] || null;
-                        setImgFile(f);
-                        const url = f ? URL.createObjectURL(f) : null;
-                        setImgPreview(url);
-                        if (f && url) setCropOpen(true);
-                      }} />
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      {imgPreview ? <img src={imgPreview} alt="preview" className="mt-2 w-20 h-20 object-cover rounded border-2 border-purple-400" /> : null}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* Immagine attuale */}
+                    <div className="bg-white rounded-xl p-4 border-2 border-gray-200 shadow-sm">
+                      <p className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Immagine attuale</p>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img 
+                        src={p?.img_url} 
+                        alt={p?.name} 
+                        className="w-full h-40 rounded-lg object-cover border-2 border-gray-200 shadow-md" 
+                        onError={(e) => { 
+                          (e.currentTarget as HTMLImageElement).onerror = null; 
+                          (e.currentTarget as HTMLImageElement).src = '/window.svg';
+                          (e.currentTarget as HTMLImageElement).className = 'w-full h-40 rounded-lg object-contain border-2 border-gray-200';
+                        }} 
+                      />
                     </div>
-                    <Button size="sm" isDisabled={busy || !imgFile} onClick={async () => {
-                      if (!imgFile) return;
-                      try {
-                        setUploadProgress(0);
-                        const blob = await getCroppedBlob(imgPreview || URL.createObjectURL(imgFile), croppedAreaPixels);
-                        const finalFile = new File([blob], `${p.uuid}.png`, { type: 'image/png' });
-                        await onUpdateImage(finalFile, (n) => setUploadProgress(n));
-                        setImgFile(null);
-                        setImgPreview(null);
-                      } catch {}
-                    }} className="rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold">Carica</Button>
+
+                    {/* Caricamento nuova immagine */}
+                    <div className="md:col-span-2 space-y-4">
+                      <div className="bg-white rounded-xl p-4 border-2 border-gray-200">
+                        <label className="block text-sm font-semibold text-gray-800 mb-2">Seleziona nuova immagine</label>
+                        <p className="text-xs text-gray-500 mb-3">✅ Formato PNG | 📏 Massimo 50MB</p>
+                        <input 
+                          type="file" 
+                          accept=",.png" 
+                          className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-900 text-sm bg-gray-50 hover:bg-gray-100 cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100" 
+                          onChange={(e) => {
+                      const f = e.target.files?.[0] || null;
+                      setImgFile(f);
+                      const url = f ? URL.createObjectURL(f) : null;
+                      setImgPreview(url);
+                      if (f && url) setCropOpen(true);
+                          }} 
+                        />
                   </div>
-                  {busy && (
-                    <div className="w-full bg-gray-200 rounded-full h-2 mt-3">
-                      <div className="bg-gradient-to-r from-purple-600 to-blue-600 h-2 rounded-full transition-all" style={{ width: `${uploadProgress}%` }} />
+
+                      {/* Preview e azioni */}
+                      {imgPreview && (
+                        <div className="bg-white rounded-xl p-4 border-2 border-purple-200">
+                          <p className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Anteprima nuova immagine</p>
+                          <div className="flex items-center gap-4">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={imgPreview} alt="preview" className="w-32 h-32 object-cover rounded-lg border-2 border-purple-300 shadow-md" />
+                            <div className="flex-1 space-y-2">
+                              <Button 
+                                className="w-full rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold" 
+                                isDisabled={busy || !imgFile}
+                                onClick={async () => {
+                    if (!imgFile) return;
+                    try {
+                      setUploadProgress(0);
+                      const blob = await getCroppedBlob(imgPreview || URL.createObjectURL(imgFile), croppedAreaPixels);
+                      const finalFile = new File([blob], `${p.uuid}.png`, { type: 'image/png' });
+                      await onUpdateImage(finalFile, (n) => setUploadProgress(n));
+                      setImgFile(null);
+                      setImgPreview(null);
+                    } catch {}
+                                }}
+                              >
+                                📤 Carica nuova immagine
+                              </Button>
+                              <Button 
+                                variant="bordered" 
+                                className="w-full rounded-full border-red-300 text-red-700 hover:bg-red-50"
+                                onClick={() => {
+                                  setImgFile(null);
+                                  setImgPreview(null);
+                                }}
+                              >
+                                ❌ Annulla
+                              </Button>
+                </div>
+                          </div>
+                  </div>
+                )}
+
+                      {/* Progress bar */}
+                      {busy && uploadProgress > 0 && (
+                        <div className="bg-white rounded-xl p-4 border-2 border-gray-200">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-semibold text-gray-600">Caricamento in corso...</span>
+                            <span className="text-xs font-bold text-purple-600">{uploadProgress}%</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                            <div 
+                              className="bg-gradient-to-r from-purple-600 to-blue-600 h-3 rounded-full transition-all duration-300 shadow-sm" 
+                              style={{ width: `${uploadProgress}%` }} 
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
 
                 {/* SEZIONE: Informazioni base */}
-                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4">
-                  <h4 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
-                    <span className="text-blue-600">ℹ️</span> Informazioni di base
+                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl p-6">
+                  <h4 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <span className="text-blue-600 text-2xl">ℹ️</span> Informazioni di base
                   </h4>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex-1">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Nome prodotto</label>
-                        <input className="w-full px-3 py-2 border border-gray-400 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-gray-900 placeholder:text-gray-600" value={name} maxLength={50} onChange={(e) => setName(e.target.value)} placeholder="Es. T-Shirt Premium" />
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-800 mb-2">Nome prodotto</label>
+                        <input 
+                          className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-gray-900 placeholder:text-gray-500 font-medium" 
+                          value={name} 
+                          maxLength={50} 
+                          onChange={(e) => setName(e.target.value)} 
+                          placeholder="Es. T-Shirt Premium" 
+                        />
+                        <div className="flex items-center justify-between mt-2">
+                          <p className="text-xs text-gray-500">{name.length}/50 caratteri</p>
+                          <Button 
+                            size="sm"
+                            isDisabled={busy || name.trim() === (p?.name || '') || !name.trim()} 
+                            onClick={() => onUpdate({ name: name.trim().slice(0,50) })} 
+                            className="rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold disabled:opacity-50"
+                          >
+                            💾 Salva nome
+                          </Button>
+                        </div>
                       </div>
-                      <Button isDisabled={busy || name === p?.name} onClick={() => onUpdate({ name: name.trim().slice(0,50) })} className="h-11 px-5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold">Salva</Button>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-800 mb-2">Categoria</label>
+                        <select 
+                          className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-gray-900 font-medium bg-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          value={category}
+                          onChange={(e) => setCategory(e.target.value)}
+                          disabled={categoriesLoading}
+                        >
+                          {categoriesLoading ? (
+                            <option value="">Caricamento categorie...</option>
+                          ) : (
+                            <>
+                              <option value="">Seleziona categoria...</option>
+                              {categories.map((cat) => (
+                                <option key={cat} value={cat}>{cat}</option>
+                              ))}
+                            </>
+                          )}
+                        </select>
+                        {!categoriesLoading && categories.length === 0 && (
+                          <p className="text-xs text-red-500 mt-1">⚠️ Nessuna categoria disponibile nel database</p>
+                        )}
+                        <div className="flex items-center justify-end mt-2">
+                          <Button 
+                            size="sm"
+                            isDisabled={busy || category === (p?.category || '') || !category.trim() || categoriesLoading} 
+                            onClick={() => onUpdate({ category: category.trim() })} 
+                            className="rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold disabled:opacity-50"
+                          >
+                            💾 Salva categoria
+                          </Button>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex-1">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
-                        <input className="w-full px-3 py-2 border border-gray-400 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-gray-900 placeholder:text-gray-600" value={category} maxLength={50} onChange={(e) => setCategory(e.target.value)} placeholder="Es. Abbigliamento" />
+
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-800 mb-2">Descrizione</label>
+                      <textarea 
+                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-gray-900 placeholder:text-gray-500 font-medium resize-none" 
+                        rows={5} 
+                        value={description} 
+                        maxLength={500} 
+                        onChange={(e) => setDescription(e.target.value)} 
+                        placeholder="Descrivi il prodotto in dettaglio..."
+                      />
+                      <div className="flex items-center justify-between mt-2">
+                        <p className="text-xs text-gray-500">{description.length}/500 caratteri</p>
+                        <Button 
+                          size="sm"
+                          isDisabled={busy || description.trim() === (p?.description || '')} 
+                          onClick={() => onUpdate({ description: description.trim().slice(0,500) })} 
+                          className="rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold disabled:opacity-50"
+                        >
+                          💾 Salva descrizione
+                        </Button>
                       </div>
-                      <Button isDisabled={busy || category === p?.category} onClick={() => onUpdate({ category: category.trim().slice(0,50) })} className="h-11 px-5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold">Salva</Button>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex-1">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Descrizione</label>
-                        <textarea className="w-full px-3 py-2 border border-gray-400 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-gray-900 placeholder:text-gray-600" rows={3} value={description} maxLength={500} onChange={(e) => setDescription(e.target.value)} placeholder="Descrivi il prodotto..." />
-                        <p className="text-xs text-gray-500 mt-1">{description.length}/500 caratteri</p>
-                      </div>
-                      <Button isDisabled={busy || description === p?.description} onClick={() => onUpdate({ description: description.trim().slice(0,500) })} className="h-11 px-5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold">Salva</Button>
                     </div>
                   </div>
                 </div>
 
                 {/* SEZIONE: Prezzo e disponibilità */}
-                <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4">
-                  <h4 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
-                    <span className="text-green-600">💰</span> Prezzo e disponibilità
+                <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl p-6">
+                  <h4 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <span className="text-green-600 text-2xl">💰</span> Prezzo e disponibilità
                   </h4>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex-1">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Prezzo</label>
-                        <input className="w-full px-3 py-2 border border-gray-400 rounded-lg focus:ring-2 focus:ring-green-600 focus:border-green-600 text-gray-900 placeholder:text-gray-600" value={price} maxLength={150} onChange={(e) => setPrice(e.target.value)} placeholder="Es. €29.99" />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-800 mb-2">Prezzo (EUR)</label>
+                      <input 
+                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-green-600 focus:border-green-600 text-gray-900 placeholder:text-gray-500 font-bold text-xl" 
+                        value={price} 
+                        maxLength={150} 
+                        onChange={(e) => setPrice(e.target.value)} 
+                        placeholder="29.99" 
+                      />
+                      <div className="flex items-center justify-end mt-2">
+                        <Button 
+                          size="sm"
+                          isDisabled={busy || price === (p?.price || '')} 
+                          onClick={() => onUpdate({ price: price.trim().slice(0,150) })} 
+                          className="rounded-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold disabled:opacity-50"
+                        >
+                          💾 Salva prezzo
+                        </Button>
                       </div>
-                      <Button isDisabled={busy || price === p?.price} onClick={() => onUpdate({ price: price.trim().slice(0,150) })} className="h-11 px-5 rounded-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold">Salva</Button>
                     </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex-1">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Quantità in magazzino</label>
-                        <div className="flex items-center gap-2">
-                          <Button size="sm" className="rounded-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold w-10 h-10" onClick={() => setStock((s) => Math.max(0, s - 1))}>−</Button>
-                          <input className="w-28 px-3 py-2 border border-gray-400 rounded-lg text-center focus:ring-2 focus:ring-green-600 focus:border-green-600 text-gray-900 font-bold text-lg placeholder:text-gray-600" type="number" min={0} value={stock} onChange={(e) => setStock(Math.max(0, Number(e.target.value)||0))} />
-                          <Button size="sm" className="rounded-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold w-10 h-10" onClick={() => setStock((s) => s + 1)}>+</Button>
-                        </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-800 mb-2">Quantità in magazzino</label>
+                  <div className="flex items-center gap-3">
+                        <Button 
+                          size="lg"
+                          className="rounded-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold w-12 h-12 text-2xl" 
+                          onClick={() => setStock((s) => Math.max(0, s - 1))}
+                        >
+                          −
+                        </Button>
+                        <input 
+                          className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-xl text-center focus:ring-2 focus:ring-green-600 focus:border-green-600 text-gray-900 font-bold text-2xl" 
+                          type="number" 
+                          min={0} 
+                          value={stock} 
+                          onChange={(e) => setStock(Math.max(0, Number(e.target.value)||0))} 
+                        />
+                        <Button 
+                          size="lg"
+                          className="rounded-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold w-12 h-12 text-2xl" 
+                          onClick={() => setStock((s) => s + 1)}
+                        >
+                          +
+                        </Button>
                       </div>
-                      <Button isDisabled={busy || stock === p?.stock} onClick={() => onUpdate({ stock: Math.max(0, stock) })} className="h-11 px-5 rounded-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold">Salva</Button>
+                      <div className="flex items-center justify-end mt-2">
+                        <Button 
+                          size="sm"
+                          isDisabled={busy || stock === (p?.stock || 0)} 
+                          onClick={() => onUpdate({ stock: Math.max(0, stock) })} 
+                          className="rounded-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold disabled:opacity-50"
+                        >
+                          💾 Salva stock
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 {/* SEZIONE: Stato e opzioni */}
-                <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4">
-                  <h4 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
-                    <span className="text-amber-600">⚙️</span> Stato e opzioni
+                <div className="bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200 rounded-xl p-6">
+                  <h4 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <span className="text-amber-600 text-2xl">⚙️</span> Stato e opzioni
                   </h4>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3 bg-white rounded-lg p-3 border border-gray-200">
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium text-gray-700">Prodotto attivo</span>
-                        <label className="inline-flex items-center cursor-pointer">
-                          <input type="checkbox" className="sr-only peer" checked={status} onChange={(e) => setStatus(e.target.checked)} />
-                          <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:bg-green-600 transition-colors relative">
-                            <div className="absolute top-0.5 left-0.5 bg-white w-5 h-5 rounded-full transition-transform peer-checked:translate-x-5"></div>
-                          </div>
-                          <span className="ml-3 text-sm font-semibold text-gray-700">{status ? '✅ Attivo' : '❌ Disabilitato'}</span>
-                        </label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-white rounded-xl p-5 border-2 border-gray-200 shadow-sm">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-base font-bold text-gray-800">Stato prodotto</span>
+                        <div className={`px-3 py-1 rounded-full text-xs font-bold ${status ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                          {status ? '✅ ATTIVO' : '❌ DISATTIVATO'}
+                        </div>
                       </div>
-                      <Button isDisabled={busy || status === !!p?.status} onClick={() => onUpdate({ status })} className="h-11 px-5 rounded-full bg-gradient-to-r from-amber-600 to-orange-600 text-white font-semibold">Salva</Button>
-                    </div>
-                    <div className="flex items-center justify-between gap-3 bg-white rounded-lg p-3 border border-gray-200">
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium text-gray-700">Personalizzabile</span>
-                        <label className="inline-flex items-center cursor-pointer">
-                          <input type="checkbox" className="sr-only peer" checked={personalizable} onChange={(e) => setPersonalizable(e.target.checked)} />
-                          <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:bg-amber-600 transition-colors relative">
-                            <div className="absolute top-0.5 left-0.5 bg-white w-5 h-5 rounded-full transition-transform peer-checked:translate-x-5"></div>
+                      <label className="flex items-center gap-4 cursor-pointer p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                        <div className="relative">
+                          <input 
+                            type="checkbox" 
+                            className="sr-only peer" 
+                            checked={status} 
+                            onChange={(e) => setStatus(e.target.checked)} 
+                          />
+                          <div className={`w-14 h-7 rounded-full transition-all ${status ? 'bg-green-600' : 'bg-gray-300'}`}>
+                            <div className={`absolute top-1 left-1 bg-white w-5 h-5 rounded-full transition-transform shadow-md ${status ? 'translate-x-7' : 'translate-x-0'}`}></div>
                           </div>
-                          <span className="ml-3 text-sm font-semibold text-gray-700">{personalizable ? '✨ Sì' : '➖ No'}</span>
-                        </label>
+                        </div>
+                        <span className="flex-1 text-sm text-gray-700">
+                          {status ? 'Il prodotto è visibile nello shop' : 'Il prodotto è nascosto nello shop'}
+                        </span>
+                    </label>
+                      <div className="flex justify-end mt-3">
+                        <Button 
+                          size="sm"
+                          isDisabled={busy || status === !!p?.status} 
+                          onClick={() => onUpdate({ status })} 
+                          className="rounded-full bg-gradient-to-r from-amber-600 to-orange-600 text-white font-semibold disabled:opacity-50"
+                        >
+                          💾 Salva stato
+                        </Button>
+                  </div>
+                </div>
+
+                    <div className="bg-white rounded-xl p-5 border-2 border-gray-200 shadow-sm">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-base font-bold text-gray-800">Personalizzazione</span>
+                        <div className={`px-3 py-1 rounded-full text-xs font-bold ${personalizable ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700'}`}>
+                          {personalizable ? '✨ ABILITATA' : '➖ DISABILITATA'}
+                        </div>
                       </div>
-                      <Button isDisabled={busy || personalizable === !!p?.personalizable} onClick={() => onUpdate({ personalizable })} className="h-11 px-5 rounded-full bg-gradient-to-r from-amber-600 to-orange-600 text-white font-semibold">Salva</Button>
-                    </div>
+                      <label className="flex items-center gap-4 cursor-pointer p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                        <div className="relative">
+                          <input 
+                            type="checkbox" 
+                            className="sr-only peer" 
+                            checked={personalizable} 
+                            onChange={(e) => setPersonalizable(e.target.checked)} 
+                          />
+                          <div className={`w-14 h-7 rounded-full transition-all ${personalizable ? 'bg-purple-600' : 'bg-gray-300'}`}>
+                            <div className={`absolute top-1 left-1 bg-white w-5 h-5 rounded-full transition-transform shadow-md ${personalizable ? 'translate-x-7' : 'translate-x-0'}`}></div>
+                          </div>
+                        </div>
+                        <span className="flex-1 text-sm text-gray-700">
+                          {personalizable ? 'Gli utenti possono personalizzare' : 'Personalizzazione non disponibile'}
+                        </span>
+                    </label>
+                      <div className="flex justify-end mt-3">
+                        <Button 
+                          size="sm"
+                          isDisabled={busy || personalizable === !!p?.personalizable} 
+                          onClick={() => onUpdate({ personalizable })} 
+                          className="rounded-full bg-gradient-to-r from-amber-600 to-orange-600 text-white font-semibold disabled:opacity-50"
+                        >
+                          💾 Salva opzione
+                        </Button>
+                  </div>
+                </div>
                   </div>
                 </div>
 
                 {/* SEZIONE: Varianti - Colori */}
-                <div className="bg-gradient-to-br from-pink-50 to-rose-50 border border-pink-200 rounded-xl p-4">
-                  <h4 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
-                    <span className="text-pink-600">🎨</span> Varianti - Colori disponibili
+                <div className="bg-gradient-to-br from-pink-50 to-rose-50 border-2 border-pink-200 rounded-xl p-6">
+                  <h4 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <span className="text-pink-600 text-2xl">🎨</span> Varianti - Colori disponibili
                   </h4>
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <input type="color" value={newColor} onChange={(e) => setNewColor(e.target.value)} className="h-12 w-16 rounded-lg border-2 border-gray-300 bg-white cursor-pointer" />
-                      <Button className="rounded-full bg-gradient-to-r from-pink-600 to-rose-600 text-white font-semibold" onClick={() => {
-                        const c = (newColor || "").trim();
-                        if (!c) return;
-                        if (colors.includes(c)) return;
-                        setColors((prev) => [...prev, c].slice(0, 20));
-                      }}>+ Aggiungi colore</Button>
-                      <Button isDisabled={busy} onClick={() => onUpdate({ colors })} className="h-11 px-5 rounded-full bg-gradient-to-r from-pink-600 to-rose-600 text-white font-semibold">Salva colori</Button>
-                    </div>
-                    {colors.length > 0 ? (
-                      <div className="bg-white rounded-lg p-3 border border-gray-200">
-                        <p className="text-xs font-medium text-gray-600 mb-2">Colori aggiunti ({colors.length}/20):</p>
-                        <div className="flex flex-wrap gap-2">
-                          {colors.map((c, idx) => (
-                            <span key={idx} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-gray-200 bg-white shadow-sm hover:shadow-md transition-shadow">
-                              <span className="w-6 h-6 rounded-full border-2 border-gray-300 shadow-sm" style={{ backgroundColor: c }} />
-                              <span className="text-sm font-medium text-gray-700">{c}</span>
-                              <button type="button" className="text-gray-400 hover:text-red-600 font-bold text-lg" onClick={() => setColors((prev) => prev.filter((x) => x !== c))}>×</button>
-                            </span>
-                          ))}
+                  <div className="space-y-4">
+                    <div className="bg-white rounded-xl p-4 border-2 border-gray-200">
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-3 flex-1">
+                          <input 
+                            type="color" 
+                            value={newColor} 
+                            onChange={(e) => setNewColor(e.target.value)} 
+                            className="h-14 w-20 rounded-xl border-2 border-gray-300 bg-white cursor-pointer shadow-sm hover:shadow-md transition-shadow" 
+                          />
+                          <div className="flex-1">
+                            <p className="text-xs font-semibold text-gray-600 mb-1">Colore selezionato</p>
+                            <p className="text-sm font-bold text-gray-900">{newColor}</p>
+                          </div>
                         </div>
-                      </div>
+                        <Button 
+                          className="rounded-full bg-gradient-to-r from-pink-600 to-rose-600 text-white font-bold px-6 h-11" 
+                          onClick={() => {
+                      const c = (newColor || "").trim();
+                      if (!c) return;
+                      if (colors.includes(c)) return;
+                      setColors((prev) => [...prev, c].slice(0, 20));
+                          }}
+                        >
+                          ➕ Aggiungi
+                        </Button>
+                        <Button 
+                          isDisabled={busy || !colorsChanged} 
+                          onClick={() => onUpdate({ colors })} 
+                          className="rounded-full bg-gradient-to-r from-pink-600 to-rose-600 text-white font-bold px-6 h-11 disabled:opacity-50"
+                        >
+                          💾 Salva tutti
+                        </Button>
+                  </div>
+                    </div>
+
+                  {colors.length > 0 ? (
+                      <div className="bg-white rounded-xl p-4 border-2 border-gray-200">
+                        <p className="text-sm font-bold text-gray-800 mb-3">Colori aggiunti ({colors.length}/20)</p>
+                        <div className="flex flex-wrap gap-3">
+                          {colors.map((c) => (
+                            <div 
+                              key={c} 
+                              className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-gray-200 bg-gradient-to-br from-white to-gray-50 shadow-sm hover:shadow-md transition-all hover:scale-105"
+                            >
+                              <div 
+                                className="w-8 h-8 rounded-full border-2 border-gray-300 shadow-sm" 
+                                style={{ backgroundColor: c }} 
+                              />
+                              <span className="text-sm font-bold text-gray-900 min-w-[60px]">{c}</span>
+                              <button 
+                                type="button" 
+                                className="ml-2 w-6 h-6 rounded-full bg-red-100 text-red-600 hover:bg-red-600 hover:text-white font-bold transition-colors flex items-center justify-center" 
+                                onClick={() => setColors((prev) => prev.filter((x) => x !== c))}
+                              >
+                                ×
+                              </button>
+                            </div>
+                      ))}
+                    </div>
+                </div>
                     ) : (
-                      <p className="text-xs text-gray-500 italic">Nessun colore aggiunto. Usa il picker sopra per aggiungerne.</p>
+                      <div className="bg-white rounded-xl p-6 border-2 border-dashed border-gray-300 text-center">
+                        <p className="text-sm text-gray-500 italic">Nessun colore aggiunto. Usa il picker sopra per aggiungerne.</p>
+                      </div>
                     )}
-                    <p className="text-xs text-gray-500">💡 Puoi aggiungere fino a 20 colori per questo prodotto.</p>
+                    <p className="text-xs text-gray-500">💡 Puoi aggiungere fino a 20 colori per questo prodotto. Il pulsante "Salva tutti" si abiliterà quando modifichi i colori.</p>
                   </div>
                 </div>
 
                 {/* SEZIONE: Varianti - Taglie */}
-                <div className="bg-gradient-to-br from-violet-50 to-purple-50 border border-violet-200 rounded-xl p-4">
-                  <h4 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
-                    <span className="text-violet-600">📏</span> Varianti - Taglie disponibili
+                <div className="bg-gradient-to-br from-violet-50 to-purple-50 border-2 border-violet-200 rounded-xl p-6">
+                  <h4 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <span className="text-violet-600 text-2xl">📏</span> Varianti - Taglie disponibili
                   </h4>
-                  <div className="space-y-3">
-                    {/* Taglie predefinite */}
-                    <div className="bg-white rounded-lg p-3 border border-gray-200">
-                      <p className="text-xs font-medium text-gray-600 mb-2">Taglie standard:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {['XS', 'S', 'M', 'L', 'XL'].map((size) => (
+                  <div className="space-y-4">
+                    {/* Taglie standard */}
+                    <div className="bg-white rounded-xl p-4 border-2 border-gray-200">
+                      <p className="text-sm font-bold text-gray-800 mb-3">Taglie standard</p>
+                      <div className="flex flex-wrap gap-3">
+                        {['XS', 'S', 'M', 'L', 'XL', 'XXL'].map((size) => (
                           <button
                             key={size}
                             type="button"
-                            className={`px-4 py-2 rounded-lg border-2 text-sm font-bold transition-all shadow-sm hover:shadow-md ${
+                            className={`px-6 py-3 rounded-xl border-2 text-base font-bold transition-all shadow-sm hover:shadow-lg ${
                               sizes.includes(size)
                                 ? 'bg-gradient-to-r from-violet-600 to-purple-600 text-white border-violet-600 scale-105'
-                                : 'bg-white text-gray-700 border-gray-300 hover:border-violet-400'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-violet-400 hover:scale-105'
                             }`}
                             onClick={() => {
                               if (sizes.includes(size)) {
@@ -2329,22 +2989,22 @@ function EditProductModal({ p, onClose, onUpdate, onUpdateImage, onDelete, busy 
                         ))}
                       </div>
                     </div>
-                    {/* Taglie numeriche personalizzate */}
-                    <div className="bg-white rounded-lg p-3 border border-gray-200">
-                      <p className="text-xs font-medium text-gray-600 mb-2">Taglie personalizzate:</p>
+
+                    {/* Taglie personalizzate */}
+                    <div className="bg-white rounded-xl p-4 border-2 border-gray-200">
+                      <p className="text-sm font-bold text-gray-800 mb-3">Aggiungi taglie personalizzate</p>
                       <div className="flex items-center gap-3">
                         <input
                           type="text"
                           value={newSize}
                           onChange={(e) => setNewSize(e.target.value)}
                           placeholder="Es. 38, 40, 42..."
-                          className="h-10 px-3 rounded-lg border-2 border-gray-300 focus:ring-2 focus:ring-violet-600 focus:border-violet-600 text-gray-900 w-32"
+                          className="flex-1 h-12 px-4 rounded-xl border-2 border-gray-300 focus:ring-2 focus:ring-violet-600 focus:border-violet-600 text-gray-900 font-medium"
                           maxLength={10}
                         />
                         <Button
                           type="button"
-                          size="sm"
-                          className="rounded-full bg-gradient-to-r from-violet-600 to-purple-600 text-white font-semibold"
+                          className="rounded-full bg-gradient-to-r from-violet-600 to-purple-600 text-white font-bold px-6 h-12"
                           onClick={() => {
                             const s = newSize.trim();
                             if (!s) return;
@@ -2353,46 +3013,48 @@ function EditProductModal({ p, onClose, onUpdate, onUpdateImage, onDelete, busy 
                             setNewSize("");
                           }}
                         >
-                          + Aggiungi
+                          ➕ Aggiungi
                         </Button>
                         <Button 
-                          size="sm"
-                          isDisabled={busy} 
+                          isDisabled={busy || !sizesChanged} 
                           onClick={() => onUpdate({ sizes })} 
-                          className="h-10 px-4 rounded-full bg-gradient-to-r from-violet-600 to-purple-600 text-white font-semibold"
+                          className="rounded-full bg-gradient-to-r from-violet-600 to-purple-600 text-white font-bold px-6 h-12 disabled:opacity-50"
                         >
-                          Salva taglie
+                          💾 Salva tutte
                         </Button>
                       </div>
                     </div>
-                    {/* Taglie aggiunte */}
+
+                    {/* Taglie selezionate */}
                     {sizes.length > 0 ? (
-                      <div className="bg-white rounded-lg p-3 border border-gray-200">
-                        <p className="text-xs font-medium text-gray-600 mb-2">Taglie selezionate ({sizes.length}):</p>
-                        <div className="flex flex-wrap gap-2">
-                          {sizes.map((s, idx) => (
-                            <span
-                              key={idx}
-                              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-violet-200 bg-violet-50 shadow-sm hover:shadow-md transition-shadow"
+                      <div className="bg-white rounded-xl p-4 border-2 border-gray-200">
+                        <p className="text-sm font-bold text-gray-800 mb-3">Taglie selezionate ({sizes.length})</p>
+                        <div className="flex flex-wrap gap-3">
+                          {sizes.map((s) => (
+                            <div
+                              key={s}
+                              className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-violet-200 bg-gradient-to-br from-violet-50 to-purple-50 shadow-sm hover:shadow-md transition-all hover:scale-105"
                             >
-                              <span className="text-sm font-bold text-gray-900">{s}</span>
+                              <span className="text-base font-bold text-gray-900">{s}</span>
                               <button
                                 type="button"
-                                className="text-gray-500 hover:text-red-600 font-bold text-lg"
+                                className="ml-2 w-6 h-6 rounded-full bg-red-100 text-red-600 hover:bg-red-600 hover:text-white font-bold transition-colors flex items-center justify-center"
                                 onClick={() => setSizes((prev) => prev.filter((x) => x !== s))}
                               >
                                 ×
                               </button>
-                            </span>
+                            </div>
                           ))}
                         </div>
                       </div>
                     ) : (
-                      <p className="text-xs text-gray-500 italic">Nessuna taglia selezionata. Scegli dalle opzioni sopra.</p>
-                    )}
-                    <p className="text-xs text-gray-500">💡 Seleziona taglie standard e/o aggiungi numeri personalizzati (es. 36, 38, 40).</p>
+                      <div className="bg-white rounded-xl p-6 border-2 border-dashed border-gray-300 text-center">
+                        <p className="text-sm text-gray-500 italic">Nessuna taglia selezionata. Scegli dalle taglie standard o aggiungi taglie personalizzate.</p>
                   </div>
+                    )}
+                    <p className="text-xs text-gray-500">💡 Seleziona le taglie standard cliccandoci sopra, oppure aggiungi taglie personalizzate (es. 36, 38, 40). Il pulsante "Salva tutte" si abiliterà quando modifichi le taglie.</p>
                 </div>
+                  </div>
 
                 {/* SEZIONE: Azioni */}
                 <div className="pt-2 flex items-center justify-between border-t-2 border-gray-200">

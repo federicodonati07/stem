@@ -460,9 +460,9 @@ export default function ShippingInfoPage() {
   return (
     <>
       {mapsKey ? <Script src={`https://maps.googleapis.com/maps/api/js?key=${mapsKey}&libraries=places`} strategy="afterInteractive" /> : null}
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white py-12 px-4">
-        <div className="max-w-2xl mx-auto">
-          <div className="flex items-center justify-between mb-4">
+      <div className="min-h-screen bg-slate-50 py-10 px-4">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex items-center justify-between mb-6">
             <Link href="/">
               <Button variant="ghost" startContent={<ArrowLeft size={16} />} className="rounded-full text-gray-700 hover:text-purple-600">Torna alla Home</Button>
             </Link>
@@ -470,14 +470,24 @@ export default function ShippingInfoPage() {
           <div className="bg-white rounded-3xl shadow-xl border border-gray-200 p-6 sm:p-8 relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-600 via-blue-600 to-purple-600" />
 
-            <div className="mb-6 text-center">
-              <h1 className="text-2xl font-bold text-gray-900">Info Spedizione</h1>
-              <p className="text-sm text-gray-600 mt-1">{isNew ? "Inserisci i dati per velocizzare i prossimi ordini" : "Aggiorna i tuoi dati di spedizione"}</p>
+            {/* Header */}
+            <div className="mb-6">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-50 text-purple-700 text-xs font-semibold mb-3">
+                <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
+                Step 1 · Dati di spedizione
+              </div>
+              <h1 className="text-2xl font-bold text-gray-900">Informazioni di spedizione</h1>
+              <p className="text-sm text-gray-600 mt-1">
+                Compila i campi principali per permetterci di spedire i tuoi ordini in modo corretto e veloce.
+              </p>
             </div>
 
-            <form className="space-y-6" onSubmit={handleSaveAll}>
-              {/* Nome e Cognome */}
-              <div>
+            <form className="space-y-8" onSubmit={handleSaveAll}>
+              {/* Sezione: Dati personali */}
+              <div className="space-y-4">
+                <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide">Dati personali</h2>
+                {/* Nome e Cognome */}
+                <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Nome e cognome</label>
                 <div className="flex items-center gap-2">
                   <input
@@ -498,13 +508,13 @@ export default function ShippingInfoPage() {
                 </div>
               </div>
 
-              {/* Telefono con prefisso */}
-              <div>
+                {/* Telefono con prefisso */}
+                <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Numero di telefono</label>
                 <div className="flex items-center gap-2">
                   <div className="flex-1">
                     <PhoneInput
-                      country={form.nation ? form.nation.toLowerCase() : "it"}
+                      country={nationCode ? nationCode.toLowerCase() : "it"}
                       value={form.phone_number}
                       onChange={(val) => handleChange("phone_number", "+" + val.replace(/^\+/, ""))}
                       inputClass={`!${inputBase} !h-12`}
@@ -522,9 +532,14 @@ export default function ShippingInfoPage() {
                   )}
                 </div>
               </div>
+              </div>
 
-              {/* Indirizzo: Google o OSM */}
-              <div className="relative">
+              {/* Sezione: Indirizzo di spedizione */}
+              <div className="space-y-4">
+                <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide">Indirizzo di spedizione</h2>
+
+                {/* Indirizzo: Google o OSM */}
+                <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Indirizzo</label>
                 {mapsKey ? (
                   <div className="flex items-center gap-2 flex-nowrap">
@@ -624,8 +639,8 @@ export default function ShippingInfoPage() {
                 )}
               </div>
 
-              {/* Nazione */}
-              <div>
+                {/* Nazione */}
+                <div>
                 <label className="block text-sm font medium text-gray-700 mb-2">Nazione</label>
                 <div className="flex items-center gap-2">
                   <div className="flex-1">
@@ -657,8 +672,8 @@ export default function ShippingInfoPage() {
                 </div>
               </div>
 
-              {/* Regione/State */}
-              <div>
+                {/* Regione/State */}
+                <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Regione / Stato</label>
                 <div className="flex items-center gap-2">
                   <div className="flex-1">
@@ -683,8 +698,8 @@ export default function ShippingInfoPage() {
                 </div>
               </div>
 
-              {/* CAP */}
-              <div>
+                {/* CAP */}
+                <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">CAP</label>
                 <div className="flex items-center gap-2">
                   <input
@@ -705,8 +720,8 @@ export default function ShippingInfoPage() {
                 </div>
               </div>
 
-              {/* Civico */}
-              <div>
+                {/* Civico */}
+                <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Civico</label>
                 <div className="flex items-center gap-2">
                   <input
@@ -725,6 +740,7 @@ export default function ShippingInfoPage() {
                     </Button>
                   )}
                 </div>
+              </div>
               </div>
 
               {error && <div className="text-red-600 font-semibold">{error}</div>}

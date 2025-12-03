@@ -20,6 +20,8 @@ export const PRODUCTS_DB =
   process.env.NEXT_PUBLIC_SUPABASE_PRODUCTS_DB || "products";
 export const PRODUCTS_STORAGE =
   process.env.NEXT_PUBLIC_SUPABASE_PRODUCTS_STORAGE || "products";
+export const CLIENT_CUSTOMIZATION_STORAGE =
+  process.env.NEXT_PUBLIC_SUPABASE_CLIENT_CUSTOMIZATION_STORAGE || "client_customization";
 export const CATEGORIES_DB =
   process.env.NEXT_PUBLIC_SUPABASE_CATEGORIES_DB || "categories";
 export const CARTS_DB = process.env.NEXT_PUBLIC_SUPABASE_CARTS_DB || "carts";

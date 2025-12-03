@@ -72,7 +72,6 @@ export default function HomePage() {
         ) : null}
         <Hero />
         <ProductGrid />
-        <CustomizeSection />
         <AboutSection />
       </main>
       <Footer />
