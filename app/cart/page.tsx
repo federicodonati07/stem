@@ -23,7 +23,7 @@ type CartLineItem = {
   purchased?: boolean;
   color?: string;
   personalized?: string;
-  size?: string;
+  sizes?: string;
 };
 
 export default function CartPage() {
@@ -76,9 +76,9 @@ export default function CartPage() {
         purchased: !!iRaw.purchased,
         color: typeof iRaw.color === 'string' ? iRaw.color : undefined,
         personalized: typeof iRaw.personalized === 'string' ? iRaw.personalized : undefined,
-        size: typeof iRaw.size === 'string' ? iRaw.size : undefined,
+        sizes: typeof iRaw.sizes === 'string' ? iRaw.sizes : undefined,
       };
-      const key = `${i.uuid}|${i.color || ''}|${i.personalized || ''}|${i.size || ''}`;
+      const key = `${i.uuid}|${i.color || ''}|${i.personalized || ''}|${i.sizes || ''}`;
       const cur = acc.get(key);
       if (cur) {
         cur.quantity += i.quantity || 0;
@@ -170,7 +170,7 @@ export default function CartPage() {
         const map = new Map<string, { key: string; sample: CartLineItem; quantity: number }>();
         for (const it of items) {
           if (!it || !it.uuid) continue;
-          const key = `${it.uuid}|${it.color || ''}|${it.personalized || ''}|${it.size || ''}`;
+          const key = `${it.uuid}|${it.color || ''}|${it.personalized || ''}|${it.sizes || ''}`;
           const cur = map.get(key);
           if (cur) cur.quantity += Number(it.quantity || 0);
           else map.set(key, { key, sample: it, quantity: Number(it.quantity || 0) });
@@ -261,18 +261,18 @@ export default function CartPage() {
                             <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-xs">Standard</span>
                           )}
                           {color ? <span className="inline-flex items-center gap-1 text-xs text-gray-700">Colore <span className="w-3 h-3 rounded-full border" style={{ backgroundColor: color }} /></span> : null}
-                          {size ? <span className="text-xs text-gray-700">Taglia: {size}</span> : null}
+                          {g.sample.sizes ? <span className="text-xs text-gray-700">Taglia: {g.sample.sizes}</span> : null}
                         </div>
                         <div className="text-sm text-gray-700">€{priceNum.toFixed(2)} /EUR</div>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <label className="flex items-center gap-2 text-sm text-gray-700">
-                        <input type="checkbox" checked={g.purchased} onChange={(e) => setPurchased(g.sample.uuid, e.target.checked, g.sample.personalized, g.sample.color, g.sample.size)} />
+                        <input type="checkbox" checked={g.purchased} onChange={(e) => setPurchased(g.sample.uuid, e.target.checked, g.sample.personalized, g.sample.color, g.sample.sizes)} />
                         Acquista
                       </label>
                       <div className="flex items-center gap-2">
-                        <Button variant="bordered" className="h-9 px-3 rounded-full border-gray-400 text-gray-800" onClick={() => updateQuantity(g.sample.uuid, Math.max(0, g.quantity - 1), g.sample.personalized, g.sample.color, g.sample.size)}>-</Button>
+                        <Button variant="bordered" className="h-9 px-3 rounded-full border-gray-400 text-gray-800" onClick={() => updateQuantity(g.sample.uuid, Math.max(0, g.quantity - 1), g.sample.personalized, g.sample.color, g.sample.sizes)}>-</Button>
                         <span className="w-10 text-center font-semibold text-gray-900">x{g.quantity}</span>
                         <Button
                           variant="bordered"
@@ -280,14 +280,14 @@ export default function CartPage() {
                           onClick={() => {
                             const max = Math.max(0, Number(products[g.sample.uuid]?.stock || 0));
                             if (g.quantity + 1 > max) return; // prevent exceeding stock
-                            updateQuantity(g.sample.uuid, g.quantity + 1, g.sample.personalized, g.sample.color, g.sample.size);
+                            updateQuantity(g.sample.uuid, g.quantity + 1, g.sample.personalized, g.sample.color, g.sample.sizes);
                           }}
                           isDisabled={g.quantity >= Math.max(0, Number(products[g.sample.uuid]?.stock || 0))}
                         >
                           +
                         </Button>
                       </div>
-                      <Button variant="bordered" className="h-9 px-3 rounded-full border-red-300 text-red-700" onClick={() => removeItem(g.sample.uuid, g.sample.personalized, g.sample.color, g.sample.size)}>Rimuovi</Button>
+                      <Button variant="bordered" className="h-9 px-3 rounded-full border-red-300 text-red-700" onClick={() => removeItem(g.sample.uuid, g.sample.personalized, g.sample.color, g.sample.sizes)}>Rimuovi</Button>
                     </div>
                   </div>
                 );

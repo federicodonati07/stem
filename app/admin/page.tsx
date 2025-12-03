@@ -2126,103 +2126,195 @@ function EditProductModal({ p, onClose, onUpdate, onUpdateImage, onDelete, busy 
               <h3 className="text-lg sm:text-xl font-bold text-gray-900">Modifica prodotto</h3>
               <span className="w-8" />
             </ModalHeader>
-            <ModalBody>
-              <div className="space-y-5">
-                <div className="flex items-center gap-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={p?.img_url} alt={p?.name} className="w-16 h-16 rounded-lg object-cover border" onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = '/window.svg'; }} />
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Aggiorna immagine (PNG, max 50MB)</label>
-                    <input type="file" accept=",.png" className="text-gray-900" onChange={(e) => {
-                      const f = e.target.files?.[0] || null;
-                      setImgFile(f);
-                      const url = f ? URL.createObjectURL(f) : null;
-                      setImgPreview(url);
-                      if (f && url) setCropOpen(true);
-                    }} />
+            <ModalBody className="max-h-[70vh] overflow-y-auto">
+              <div className="space-y-6">
+                {/* SEZIONE: Immagine del prodotto */}
+                <div className="bg-gradient-to-br from-purple-50 to-blue-50 border border-purple-200 rounded-xl p-4">
+                  <h4 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
+                    <span className="text-purple-600">📷</span> Immagine del prodotto
+                  </h4>
+                  <div className="flex items-center gap-3">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {imgPreview ? <img src={imgPreview} alt="preview" className="mt-2 w-20 h-20 object-cover rounded border" /> : null}
-                  </div>
-                  <Button size="sm" isDisabled={busy || !imgFile} onClick={async () => {
-                    if (!imgFile) return;
-                    try {
-                      setUploadProgress(0);
-                      // Se è stata fatta un'area di crop, genera PNG ritagliato
-                      const blob = await getCroppedBlob(imgPreview || URL.createObjectURL(imgFile), croppedAreaPixels);
-                      const finalFile = new File([blob], `${p.uuid}.png`, { type: 'image/png' });
-                      await onUpdateImage(finalFile, (n) => setUploadProgress(n));
-                      setImgFile(null);
-                      setImgPreview(null);
-                    } catch {}
-                  }} className="rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold">Aggiorna immagine</Button>
-                </div>
-                {busy && (
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div className="bg-gradient-to-r from-purple-600 to-blue-600 h-2 rounded-full" style={{ width: `${uploadProgress}%` }} />
-                  </div>
-                )}
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-medium text-gray-700">Stato</span>
-                    <label className="inline-flex items-center cursor-pointer">
-                      <input type="checkbox" className="sr-only peer" checked={status} onChange={(e) => setStatus(e.target.checked)} />
-                      <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:bg-purple-600 transition-colors"></div>
-                      <span className="ml-3 text-sm text-gray-700">{status ? 'Attivo' : 'Disabilitato'}</span>
-                    </label>
-                  </div>
-                  <Button isDisabled={busy || status === !!p?.status} onClick={() => onUpdate({ status })} className="h-11 px-5 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold">Aggiorna</Button>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-medium text-gray-700">Personalizzabile</span>
-                    <label className="inline-flex items-center cursor-pointer">
-                      <input type="checkbox" className="sr-only peer" checked={personalizable} onChange={(e) => setPersonalizable(e.target.checked)} />
-                      <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:bg-purple-600 transition-colors"></div>
-                      <span className="ml-3 text-sm text-gray-700">{personalizable ? 'Sì' : 'No'}</span>
-                    </label>
-                  </div>
-                  <Button isDisabled={busy || personalizable === !!p?.personalizable} onClick={() => onUpdate({ personalizable })} className="h-11 px-5 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold">Aggiorna</Button>
-                </div>
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Colori (opzionale)</label>
-                  <div className="flex items-center gap-3">
-                    <input type="color" value={newColor} onChange={(e) => setNewColor(e.target.value)} className="h-10 w-14 rounded-lg border border-gray-300 bg-white" />
-                    <Button className="rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white" onClick={() => {
-                      const c = (newColor || "").trim();
-                      if (!c) return;
-                      if (colors.includes(c)) return;
-                      setColors((prev) => [...prev, c].slice(0, 20));
-                    }}>Aggiungi colore</Button>
-                    <Button isDisabled={busy} onClick={() => onUpdate({ colors })} className="h-11 px-5 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold">Aggiorna</Button>
-                  </div>
-                  {colors.length > 0 ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {colors.map((c, idx) => (
-                        <span key={idx} className="inline-flex items-center gap-2 px-3 py-1 rounded-full border" style={{ borderColor: '#e5e7eb' }}>
-                          <span className="w-4 h-4 rounded-full border" style={{ backgroundColor: c }} />
-                          <span className="text-sm text-gray-700">{c}</span>
-                          <button type="button" className="text-gray-500 hover:text-red-600" onClick={() => setColors((prev) => prev.filter((x) => x !== c))}>×</button>
-                        </span>
-                      ))}
+                    <img src={p?.img_url} alt={p?.name} className="w-20 h-20 rounded-lg object-cover border-2 border-white shadow-md" onError={(e) => { (e.currentTarget as HTMLImageElement).onerror = null; (e.currentTarget as HTMLImageElement).src = '/window.svg'; }} />
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Seleziona nuova immagine</label>
+                      <p className="text-xs text-gray-500 mb-2">Formato PNG, massimo 50MB</p>
+                      <input type="file" accept=",.png" className="text-gray-900 text-sm" onChange={(e) => {
+                        const f = e.target.files?.[0] || null;
+                        setImgFile(f);
+                        const url = f ? URL.createObjectURL(f) : null;
+                        setImgPreview(url);
+                        if (f && url) setCropOpen(true);
+                      }} />
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      {imgPreview ? <img src={imgPreview} alt="preview" className="mt-2 w-20 h-20 object-cover rounded border-2 border-purple-400" /> : null}
                     </div>
-                  ) : null}
-                  <p className="text-xs text-gray-500">Puoi aggiungere fino a 20 colori. Usa il picker per selezionarli rapidamente.</p>
+                    <Button size="sm" isDisabled={busy || !imgFile} onClick={async () => {
+                      if (!imgFile) return;
+                      try {
+                        setUploadProgress(0);
+                        const blob = await getCroppedBlob(imgPreview || URL.createObjectURL(imgFile), croppedAreaPixels);
+                        const finalFile = new File([blob], `${p.uuid}.png`, { type: 'image/png' });
+                        await onUpdateImage(finalFile, (n) => setUploadProgress(n));
+                        setImgFile(null);
+                        setImgPreview(null);
+                      } catch {}
+                    }} className="rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold">Carica</Button>
+                  </div>
+                  {busy && (
+                    <div className="w-full bg-gray-200 rounded-full h-2 mt-3">
+                      <div className="bg-gradient-to-r from-purple-600 to-blue-600 h-2 rounded-full transition-all" style={{ width: `${uploadProgress}%` }} />
+                    </div>
+                  )}
                 </div>
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Taglie (opzionale)</label>
+
+                {/* SEZIONE: Informazioni base */}
+                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4">
+                  <h4 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
+                    <span className="text-blue-600">ℹ️</span> Informazioni di base
+                  </h4>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nome prodotto</label>
+                        <input className="w-full px-3 py-2 border border-gray-400 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-gray-900 placeholder:text-gray-600" value={name} maxLength={50} onChange={(e) => setName(e.target.value)} placeholder="Es. T-Shirt Premium" />
+                      </div>
+                      <Button isDisabled={busy || name === p?.name} onClick={() => onUpdate({ name: name.trim().slice(0,50) })} className="h-11 px-5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold">Salva</Button>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
+                        <input className="w-full px-3 py-2 border border-gray-400 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-gray-900 placeholder:text-gray-600" value={category} maxLength={50} onChange={(e) => setCategory(e.target.value)} placeholder="Es. Abbigliamento" />
+                      </div>
+                      <Button isDisabled={busy || category === p?.category} onClick={() => onUpdate({ category: category.trim().slice(0,50) })} className="h-11 px-5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold">Salva</Button>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Descrizione</label>
+                        <textarea className="w-full px-3 py-2 border border-gray-400 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-gray-900 placeholder:text-gray-600" rows={3} value={description} maxLength={500} onChange={(e) => setDescription(e.target.value)} placeholder="Descrivi il prodotto..." />
+                        <p className="text-xs text-gray-500 mt-1">{description.length}/500 caratteri</p>
+                      </div>
+                      <Button isDisabled={busy || description === p?.description} onClick={() => onUpdate({ description: description.trim().slice(0,500) })} className="h-11 px-5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold">Salva</Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SEZIONE: Prezzo e disponibilità */}
+                <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4">
+                  <h4 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
+                    <span className="text-green-600">💰</span> Prezzo e disponibilità
+                  </h4>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Prezzo</label>
+                        <input className="w-full px-3 py-2 border border-gray-400 rounded-lg focus:ring-2 focus:ring-green-600 focus:border-green-600 text-gray-900 placeholder:text-gray-600" value={price} maxLength={150} onChange={(e) => setPrice(e.target.value)} placeholder="Es. €29.99" />
+                      </div>
+                      <Button isDisabled={busy || price === p?.price} onClick={() => onUpdate({ price: price.trim().slice(0,150) })} className="h-11 px-5 rounded-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold">Salva</Button>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Quantità in magazzino</label>
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" className="rounded-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold w-10 h-10" onClick={() => setStock((s) => Math.max(0, s - 1))}>−</Button>
+                          <input className="w-28 px-3 py-2 border border-gray-400 rounded-lg text-center focus:ring-2 focus:ring-green-600 focus:border-green-600 text-gray-900 font-bold text-lg placeholder:text-gray-600" type="number" min={0} value={stock} onChange={(e) => setStock(Math.max(0, Number(e.target.value)||0))} />
+                          <Button size="sm" className="rounded-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold w-10 h-10" onClick={() => setStock((s) => s + 1)}>+</Button>
+                        </div>
+                      </div>
+                      <Button isDisabled={busy || stock === p?.stock} onClick={() => onUpdate({ stock: Math.max(0, stock) })} className="h-11 px-5 rounded-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold">Salva</Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SEZIONE: Stato e opzioni */}
+                <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4">
+                  <h4 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
+                    <span className="text-amber-600">⚙️</span> Stato e opzioni
+                  </h4>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3 bg-white rounded-lg p-3 border border-gray-200">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-medium text-gray-700">Prodotto attivo</span>
+                        <label className="inline-flex items-center cursor-pointer">
+                          <input type="checkbox" className="sr-only peer" checked={status} onChange={(e) => setStatus(e.target.checked)} />
+                          <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:bg-green-600 transition-colors relative">
+                            <div className="absolute top-0.5 left-0.5 bg-white w-5 h-5 rounded-full transition-transform peer-checked:translate-x-5"></div>
+                          </div>
+                          <span className="ml-3 text-sm font-semibold text-gray-700">{status ? '✅ Attivo' : '❌ Disabilitato'}</span>
+                        </label>
+                      </div>
+                      <Button isDisabled={busy || status === !!p?.status} onClick={() => onUpdate({ status })} className="h-11 px-5 rounded-full bg-gradient-to-r from-amber-600 to-orange-600 text-white font-semibold">Salva</Button>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 bg-white rounded-lg p-3 border border-gray-200">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-medium text-gray-700">Personalizzabile</span>
+                        <label className="inline-flex items-center cursor-pointer">
+                          <input type="checkbox" className="sr-only peer" checked={personalizable} onChange={(e) => setPersonalizable(e.target.checked)} />
+                          <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:bg-amber-600 transition-colors relative">
+                            <div className="absolute top-0.5 left-0.5 bg-white w-5 h-5 rounded-full transition-transform peer-checked:translate-x-5"></div>
+                          </div>
+                          <span className="ml-3 text-sm font-semibold text-gray-700">{personalizable ? '✨ Sì' : '➖ No'}</span>
+                        </label>
+                      </div>
+                      <Button isDisabled={busy || personalizable === !!p?.personalizable} onClick={() => onUpdate({ personalizable })} className="h-11 px-5 rounded-full bg-gradient-to-r from-amber-600 to-orange-600 text-white font-semibold">Salva</Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SEZIONE: Varianti - Colori */}
+                <div className="bg-gradient-to-br from-pink-50 to-rose-50 border border-pink-200 rounded-xl p-4">
+                  <h4 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
+                    <span className="text-pink-600">🎨</span> Varianti - Colori disponibili
+                  </h4>
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <input type="color" value={newColor} onChange={(e) => setNewColor(e.target.value)} className="h-12 w-16 rounded-lg border-2 border-gray-300 bg-white cursor-pointer" />
+                      <Button className="rounded-full bg-gradient-to-r from-pink-600 to-rose-600 text-white font-semibold" onClick={() => {
+                        const c = (newColor || "").trim();
+                        if (!c) return;
+                        if (colors.includes(c)) return;
+                        setColors((prev) => [...prev, c].slice(0, 20));
+                      }}>+ Aggiungi colore</Button>
+                      <Button isDisabled={busy} onClick={() => onUpdate({ colors })} className="h-11 px-5 rounded-full bg-gradient-to-r from-pink-600 to-rose-600 text-white font-semibold">Salva colori</Button>
+                    </div>
+                    {colors.length > 0 ? (
+                      <div className="bg-white rounded-lg p-3 border border-gray-200">
+                        <p className="text-xs font-medium text-gray-600 mb-2">Colori aggiunti ({colors.length}/20):</p>
+                        <div className="flex flex-wrap gap-2">
+                          {colors.map((c, idx) => (
+                            <span key={idx} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-gray-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+                              <span className="w-6 h-6 rounded-full border-2 border-gray-300 shadow-sm" style={{ backgroundColor: c }} />
+                              <span className="text-sm font-medium text-gray-700">{c}</span>
+                              <button type="button" className="text-gray-400 hover:text-red-600 font-bold text-lg" onClick={() => setColors((prev) => prev.filter((x) => x !== c))}>×</button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-500 italic">Nessun colore aggiunto. Usa il picker sopra per aggiungerne.</p>
+                    )}
+                    <p className="text-xs text-gray-500">💡 Puoi aggiungere fino a 20 colori per questo prodotto.</p>
+                  </div>
+                </div>
+
+                {/* SEZIONE: Varianti - Taglie */}
+                <div className="bg-gradient-to-br from-violet-50 to-purple-50 border border-violet-200 rounded-xl p-4">
+                  <h4 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
+                    <span className="text-violet-600">📏</span> Varianti - Taglie disponibili
+                  </h4>
                   <div className="space-y-3">
                     {/* Taglie predefinite */}
-                    <div>
-                      <p className="text-xs text-gray-600 mb-2">Taglie standard:</p>
+                    <div className="bg-white rounded-lg p-3 border border-gray-200">
+                      <p className="text-xs font-medium text-gray-600 mb-2">Taglie standard:</p>
                       <div className="flex flex-wrap gap-2">
                         {['XS', 'S', 'M', 'L', 'XL'].map((size) => (
                           <button
                             key={size}
                             type="button"
-                            className={`px-3 py-1 rounded-full border-2 text-sm font-medium transition-colors ${
+                            className={`px-4 py-2 rounded-lg border-2 text-sm font-bold transition-all shadow-sm hover:shadow-md ${
                               sizes.includes(size)
-                                ? 'bg-purple-600 text-white border-purple-600'
-                                : 'bg-white text-gray-700 border-gray-300 hover:border-purple-400'
+                                ? 'bg-gradient-to-r from-violet-600 to-purple-600 text-white border-violet-600 scale-105'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-violet-400'
                             }`}
                             onClick={() => {
                               if (sizes.includes(size)) {
@@ -2238,21 +2330,21 @@ function EditProductModal({ p, onClose, onUpdate, onUpdateImage, onDelete, busy 
                       </div>
                     </div>
                     {/* Taglie numeriche personalizzate */}
-                    <div>
-                      <p className="text-xs text-gray-600 mb-2">Aggiungi numeri:</p>
+                    <div className="bg-white rounded-lg p-3 border border-gray-200">
+                      <p className="text-xs font-medium text-gray-600 mb-2">Taglie personalizzate:</p>
                       <div className="flex items-center gap-3">
                         <input
                           type="text"
                           value={newSize}
                           onChange={(e) => setNewSize(e.target.value)}
-                          placeholder="Es. 38"
-                          className="h-9 px-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-600 text-gray-900 w-24"
+                          placeholder="Es. 38, 40, 42..."
+                          className="h-10 px-3 rounded-lg border-2 border-gray-300 focus:ring-2 focus:ring-violet-600 focus:border-violet-600 text-gray-900 w-32"
                           maxLength={10}
                         />
                         <Button
                           type="button"
                           size="sm"
-                          className="rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white"
+                          className="rounded-full bg-gradient-to-r from-violet-600 to-purple-600 text-white font-semibold"
                           onClick={() => {
                             const s = newSize.trim();
                             if (!s) return;
@@ -2261,32 +2353,32 @@ function EditProductModal({ p, onClose, onUpdate, onUpdateImage, onDelete, busy 
                             setNewSize("");
                           }}
                         >
-                          Aggiungi
+                          + Aggiungi
                         </Button>
                         <Button 
                           size="sm"
                           isDisabled={busy} 
                           onClick={() => onUpdate({ sizes })} 
-                          className="h-9 px-4 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold"
+                          className="h-10 px-4 rounded-full bg-gradient-to-r from-violet-600 to-purple-600 text-white font-semibold"
                         >
-                          Aggiorna taglie
+                          Salva taglie
                         </Button>
                       </div>
                     </div>
                     {/* Taglie aggiunte */}
                     {sizes.length > 0 ? (
-                      <div>
-                        <p className="text-xs text-gray-600 mb-2">Taglie selezionate:</p>
+                      <div className="bg-white rounded-lg p-3 border border-gray-200">
+                        <p className="text-xs font-medium text-gray-600 mb-2">Taglie selezionate ({sizes.length}):</p>
                         <div className="flex flex-wrap gap-2">
                           {sizes.map((s, idx) => (
                             <span
                               key={idx}
-                              className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-gray-300 bg-gray-50"
+                              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-violet-200 bg-violet-50 shadow-sm hover:shadow-md transition-shadow"
                             >
-                              <span className="text-sm font-medium text-gray-900">{s}</span>
+                              <span className="text-sm font-bold text-gray-900">{s}</span>
                               <button
                                 type="button"
-                                className="text-gray-500 hover:text-red-600 font-bold"
+                                className="text-gray-500 hover:text-red-600 font-bold text-lg"
                                 onClick={() => setSizes((prev) => prev.filter((x) => x !== s))}
                               >
                                 ×
@@ -2295,54 +2387,19 @@ function EditProductModal({ p, onClose, onUpdate, onUpdateImage, onDelete, busy 
                           ))}
                         </div>
                       </div>
-                    ) : null}
+                    ) : (
+                      <p className="text-xs text-gray-500 italic">Nessuna taglia selezionata. Scegli dalle opzioni sopra.</p>
+                    )}
+                    <p className="text-xs text-gray-500">💡 Seleziona taglie standard e/o aggiungi numeri personalizzati (es. 36, 38, 40).</p>
                   </div>
-                  <p className="text-xs text-gray-500">Seleziona taglie standard e/o aggiungi numeri personalizzati.</p>
                 </div>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex-1">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
-                    <input className="w-full px-3 py-2 border border-gray-400 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-purple-600 text-gray-900 placeholder:text-gray-600" value={name} maxLength={50} onChange={(e) => setName(e.target.value)} />
-                  </div>
-                  <Button isDisabled={busy || name === p?.name} onClick={() => onUpdate({ name: name.trim().slice(0,50) })} className="h-11 px-5 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold">Aggiorna</Button>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex-1">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
-                    <input className="w-full px-3 py-2 border border-gray-400 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-purple-600 text-gray-900 placeholder:text-gray-600" value={category} maxLength={50} onChange={(e) => setCategory(e.target.value)} />
-                  </div>
-                  <Button isDisabled={busy || category === p?.category} onClick={() => onUpdate({ category: category.trim().slice(0,50) })} className="h-11 px-5 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold">Aggiorna</Button>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex-1">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Prezzo</label>
-                    <input className="w-full px-3 py-2 border border-gray-400 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-purple-600 text-gray-900 placeholder:text-gray-600" value={price} maxLength={150} onChange={(e) => setPrice(e.target.value)} />
-                  </div>
-                  <Button isDisabled={busy || price === p?.price} onClick={() => onUpdate({ price: price.trim().slice(0,150) })} className="h-11 px-5 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold">Aggiorna</Button>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex-1">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Stock</label>
-                    <div className="flex items-center gap-2">
-                      <Button size="sm" className="rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold" onClick={() => setStock((s) => Math.max(0, s - 1))}>-</Button>
-                      <input className="w-24 px-3 py-2 border border-gray-400 rounded-lg text-center focus:ring-2 focus:ring-purple-600 focus:border-purple-600 text-gray-900 placeholder:text-gray-600" type="number" min={0} value={stock} onChange={(e) => setStock(Math.max(0, Number(e.target.value)||0))} />
-                      <Button size="sm" className="rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold" onClick={() => setStock((s) => s + 1)}>+</Button>
-                    </div>
-                  </div>
-                  <Button isDisabled={busy || stock === p?.stock} onClick={() => onUpdate({ stock: Math.max(0, stock) })} className="h-11 px-5 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold">Aggiorna</Button>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex-1">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Descrizione</label>
-                    <textarea className="w-full px-3 py-2 border border-gray-400 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-purple-600 text-gray-900 placeholder:text-gray-600" rows={3} value={description} maxLength={500} onChange={(e) => setDescription(e.target.value)} />
-                  </div>
-                  <Button isDisabled={busy || description === p?.description} onClick={() => onUpdate({ description: description.trim().slice(0,500) })} className="h-11 px-5 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold">Aggiorna</Button>
-                </div>
-                <div className="pt-2 flex items-center justify-between">
-                  <Button className="rounded-full bg-gray-900 text-white hover:bg-gray-800 px-6" onClick={onClose}>Chiudi</Button>
-                  <Button color="danger" className="rounded-full bg-red-600 text-white hover:bg-red-700" isDisabled={busy}
+
+                {/* SEZIONE: Azioni */}
+                <div className="pt-2 flex items-center justify-between border-t-2 border-gray-200">
+                  <Button className="rounded-full bg-gray-900 text-white hover:bg-gray-800 px-6 font-semibold" onClick={onClose}>← Chiudi</Button>
+                  <Button color="danger" className="rounded-full bg-red-600 text-white hover:bg-red-700 font-semibold" isDisabled={busy}
                     onClick={() => setConfirmOpen(true)}>
-                    Elimina prodotto
+                    🗑️ Elimina prodotto
                   </Button>
                 </div>
               </div>
